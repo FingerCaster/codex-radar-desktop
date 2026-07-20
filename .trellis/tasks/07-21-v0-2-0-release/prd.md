@@ -43,20 +43,20 @@ checksums, and a verified GitHub Release.
 
 ## Acceptance Criteria
 
-- [ ] All four authoritative version locations report exactly `0.2.0` and no
+- [x] All four authoritative version locations report exactly `0.2.0` and no
   tracked release metadata still identifies the current build as `0.1.0`.
-- [ ] The complete frontend and Rust quality gate passes from the release
+- [x] The complete frontend and Rust quality gate passes from the release
   commit without weakening checks.
-- [ ] Fresh `Model Radar_0.2.0_x64_en-US.msi` and
+- [x] Fresh `Model Radar_0.2.0_x64_en-US.msi` and
   `Model Radar_0.2.0_x64-setup.exe` bundles exist and match the published
   SHA-256 checksum asset.
-- [ ] `origin/main` contains the release commit and local `main` is neither
+- [x] `origin/main` contains the release commit and local `main` is neither
   ahead nor behind after push.
-- [ ] Annotated tag `v0.2.0` exists locally and remotely and peels to the exact
+- [x] Annotated tag `v0.2.0` exists locally and remotely and peels to the exact
   release commit.
-- [ ] GitHub Release `v0.2.0` is public, latest, non-prerelease, has exactly the
+- [x] GitHub Release `v0.2.0` is public, latest, non-prerelease, has exactly the
   three intended uploaded assets, and exposes working download URLs.
-- [ ] The final worktree is clean and the release task records the commit,
+- [x] The final worktree is clean and the release task records the commit,
   artifact sizes, hashes, and GitHub URL.
 
 ## Out Of Scope

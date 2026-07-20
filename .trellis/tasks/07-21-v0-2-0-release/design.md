@@ -34,13 +34,17 @@ deleting or rewriting remote history.
 
 ## Assets
 
-- `Model Radar_0.2.0_x64_en-US.msi`
-- `Model Radar_0.2.0_x64-setup.exe`
+- Local Tauri output: `Model Radar_0.2.0_x64_en-US.msi`
+- Local Tauri output: `Model Radar_0.2.0_x64-setup.exe`
+- GitHub asset: `Model.Radar_0.2.0_x64_en-US.msi`
+- GitHub asset: `Model.Radar_0.2.0_x64-setup.exe`
 - `SHA256SUMS.txt`
 
 The checksum file uses uppercase SHA-256 followed by two spaces and the exact
-asset filename on each line. GitHub's server-computed asset digest must match
-the locally recorded value for both installers and the checksum file itself.
+download asset filename on each line. GitHub normalizes spaces in uploaded
+filenames to dots, so the checksum manifest records the normalized names.
+GitHub's server-computed asset digest must match the locally recorded value for
+both installers and the checksum file itself.
 
 ## Compatibility And Claims
 
