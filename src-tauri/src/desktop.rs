@@ -15,6 +15,7 @@ use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
     Window, Wry,
 };
+use tauri_plugin_autostart::ManagerExt;
 
 use crate::radar::{service::REFRESH_REQUESTED_EVENT, RadarService, RadarSource};
 
@@ -23,6 +24,7 @@ mod windows;
 
 pub const PREFERENCES_UPDATED_EVENT: &str = "desktop://preferences-updated";
 pub const MAIN_EXPANDED_EVENT: &str = "desktop://main-expanded";
+pub const SHOW_MAIN_DETAILS_EVENT: &str = "desktop://show-main-details";
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const TASKBAR_WINDOW_LABEL: &str = "taskbar";
@@ -49,6 +51,7 @@ const MENU_POSITION_BOTTOM_LEFT: &str = "desktop.position.bottom-left";
 const MENU_POSITION_BOTTOM_RIGHT: &str = "desktop.position.bottom-right";
 const MENU_SHOW_TASKBAR_WINDOW: &str = "desktop.show-taskbar-window";
 const MENU_SHOW_MAIN_WINDOW: &str = "desktop.show-main-window";
+const MENU_LAUNCH_AT_LOGIN: &str = "desktop.launch-at-login";
 const MENU_OPACITY_PREFIX: &str = "desktop.opacity.";
 const MENU_RADAR_SOURCE_SUBMENU: &str = "desktop.radar-source";
 const MENU_RADAR_SOURCE_MAIN: &str = "desktop.radar-source.main";
@@ -188,6 +191,7 @@ pub struct DesktopPreferences {
     pub position_locked: bool,
     pub show_taskbar_window: bool,
     pub show_main_window: bool,
+    pub launch_at_login: bool,
     pub opacity_percent: u8,
     pub radar_source: RadarSource,
 }
@@ -200,6 +204,7 @@ impl Default for DesktopPreferences {
             position_locked: false,
             show_taskbar_window: true,
             show_main_window: true,
+            launch_at_login: false,
             opacity_percent: 100,
             radar_source: RadarSource::Main,
         }
@@ -224,6 +229,7 @@ impl DesktopPreferences {
             DesktopOption::PositionLocked => self.position_locked = enabled,
             DesktopOption::ShowTaskbarWindow => self.show_taskbar_window = enabled,
             DesktopOption::ShowMainWindow => self.show_main_window = enabled,
+            DesktopOption::LaunchAtLogin => self.launch_at_login = enabled,
         }
 
         if !self.show_taskbar_window && !self.show_main_window {
@@ -249,6 +255,7 @@ pub enum DesktopOption {
     PositionLocked,
     ShowTaskbarWindow,
     ShowMainWindow,
+    LaunchAtLogin,
 }
 
 impl DesktopOption {
@@ -259,6 +266,7 @@ impl DesktopOption {
             MENU_POSITION_LOCKED => Some(Self::PositionLocked),
             MENU_SHOW_TASKBAR_WINDOW => Some(Self::ShowTaskbarWindow),
             MENU_SHOW_MAIN_WINDOW => Some(Self::ShowMainWindow),
+            MENU_LAUNCH_AT_LOGIN => Some(Self::LaunchAtLogin),
             _ => None,
         }
     }
@@ -270,6 +278,7 @@ impl DesktopOption {
             Self::PositionLocked => preferences.position_locked,
             Self::ShowTaskbarWindow => preferences.show_taskbar_window,
             Self::ShowMainWindow => preferences.show_main_window,
+            Self::LaunchAtLogin => preferences.launch_at_login,
         }
     }
 }
@@ -321,6 +330,7 @@ struct DesktopMenu {
     position_locked: CheckMenuItem<Wry>,
     show_taskbar_window: CheckMenuItem<Wry>,
     show_main_window: CheckMenuItem<Wry>,
+    launch_at_login: CheckMenuItem<Wry>,
     radar_source_main: CheckMenuItem<Wry>,
     radar_source_distributed: CheckMenuItem<Wry>,
     opacity: Vec<(u8, CheckMenuItem<Wry>)>,
@@ -376,6 +386,12 @@ impl DesktopMenu {
             MENU_SHOW_MAIN_WINDOW,
             "显示主窗口",
             preferences.show_main_window,
+        )?;
+        let launch_at_login = check_item(
+            app,
+            MENU_LAUNCH_AT_LOGIN,
+            "开机自启",
+            preferences.launch_at_login,
         )?;
 
         let opacity_100 = opacity_item(app, 100, preferences.opacity_percent)?;
@@ -433,6 +449,7 @@ impl DesktopMenu {
                 &first_separator,
                 &show_taskbar_window,
                 &show_main_window,
+                &launch_at_login,
                 &second_separator,
                 &opacity_menu,
                 &radar_source_menu,
@@ -449,6 +466,7 @@ impl DesktopMenu {
             position_locked,
             show_taskbar_window,
             show_main_window,
+            launch_at_login,
             radar_source_main,
             radar_source_distributed,
             opacity: vec![
@@ -476,6 +494,9 @@ impl DesktopMenu {
             .map_err(|error| error.to_string())?;
         self.show_main_window
             .set_checked(preferences.show_main_window)
+            .map_err(|error| error.to_string())?;
+        self.launch_at_login
+            .set_checked(preferences.launch_at_login)
             .map_err(|error| error.to_string())?;
         let [main_checked, distributed_checked] = radar_source_checks(&preferences.radar_source);
         self.radar_source_main
@@ -515,7 +536,13 @@ impl DesktopController {
             .map_err(|error| error.to_string())?;
         let preferences_path = config_dir.join(PREFERENCES_FILE);
         let main_position_path = config_dir.join(MAIN_POSITION_FILE);
-        let preferences = load_preferences(&preferences_path);
+        let mut preferences = load_preferences(&preferences_path);
+        match app.autolaunch().is_enabled() {
+            Ok(enabled) => preferences.launch_at_login = enabled,
+            Err(error) => eprintln!(
+                "[model-radar] native start-at-login state could not be read; retaining persisted preference: {error}"
+            ),
+        }
         let main_position = load_json(&main_position_path);
         let menu = DesktopMenu::new(app, &preferences)?;
 
@@ -614,6 +641,7 @@ impl DesktopController {
         }
         if let Err(error) = persist_preferences(&self.preferences_path, &next) {
             let _ = self.apply_option(app, option, &previous);
+            let _ = persist_preferences(&self.preferences_path, &previous);
             let _ = self.menu.sync(&previous);
             return Err(error);
         }
@@ -688,7 +716,7 @@ impl DesktopController {
         &self,
         app: &AppHandle,
         source: RadarSource,
-    ) -> Result<(), String> {
+    ) -> Result<DesktopPreferences, String> {
         let transition = self.radar_source_transition.lock().await;
         let service = app.state::<RadarService>();
         let (preferences, _) = service
@@ -699,7 +727,7 @@ impl DesktopController {
         service.wake_polling();
         drop(transition);
         let _ = service.refresh_and_publish(app).await;
-        Ok(())
+        Ok(preferences)
     }
 
     pub fn update_projection(
@@ -766,6 +794,7 @@ impl DesktopController {
         if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
             window.set_focus().map_err(|error| error.to_string())?;
         }
+        let _ = app.emit(SHOW_MAIN_DETAILS_EVENT, ());
         Ok(preferences)
     }
 
@@ -1122,6 +1151,27 @@ impl DesktopController {
             DesktopOption::ShowTaskbarWindow | DesktopOption::ShowMainWindow => {
                 self.apply_visibility(app, preferences)
             }
+            DesktopOption::LaunchAtLogin => {
+                self.apply_launch_at_login(app, preferences.launch_at_login)
+            }
+        }
+    }
+
+    fn apply_launch_at_login(&self, app: &AppHandle, enabled: bool) -> Result<(), String> {
+        let autolaunch = app.autolaunch();
+        if enabled {
+            autolaunch.enable().map_err(|error| error.to_string())?;
+        } else {
+            autolaunch.disable().map_err(|error| error.to_string())?;
+        }
+
+        let actual = autolaunch.is_enabled().map_err(|error| error.to_string())?;
+        if actual == enabled {
+            Ok(())
+        } else {
+            Err(format!(
+                "native start-at-login verification failed: requested {enabled}, found {actual}"
+            ))
         }
     }
 
@@ -1384,7 +1434,9 @@ pub fn get_main_expanded(state: State<'_, DesktopController>) -> Result<bool, St
     state.main_expanded()
 }
 
-#[tauri::command]
+// These transactions can wait on native window work while the taskbar monitor
+// is holding the preference guard. Keep the IPC event loop free to service it.
+#[tauri::command(async)]
 pub fn set_desktop_option(
     app: AppHandle,
     state: State<'_, DesktopController>,
@@ -1395,7 +1447,7 @@ pub fn set_desktop_option(
     state.set_option(&app, option, enabled)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_desktop_opacity(
     app: AppHandle,
     state: State<'_, DesktopController>,
@@ -1403,6 +1455,16 @@ pub fn set_desktop_opacity(
 ) -> Result<DesktopPreferences, String> {
     ensure_supported_platform()?;
     state.set_opacity(&app, opacity_percent)
+}
+
+#[tauri::command]
+pub async fn set_desktop_radar_source(
+    app: AppHandle,
+    state: State<'_, DesktopController>,
+    source: RadarSource,
+) -> Result<DesktopPreferences, String> {
+    ensure_supported_platform()?;
+    state.switch_radar_source(&app, source).await
 }
 
 #[tauri::command]
@@ -1844,9 +1906,10 @@ mod tests {
         radar_source_checks, radar_source_from_menu_id, restored_main_window_position,
         tray_left_click_behavior, CompanionProjection, DesktopOption, DesktopPreferences,
         MainPositionSaveState, MainWindowPositionPreset, RadarSource, SavedMainWindowPosition,
-        TrayLeftClickBehavior, MENU_POSITION_BOTTOM_LEFT, MENU_POSITION_BOTTOM_RIGHT,
-        MENU_POSITION_CENTER, MENU_POSITION_TOP_LEFT, MENU_POSITION_TOP_RIGHT,
-        MENU_RADAR_SOURCE_DISTRIBUTED, MENU_RADAR_SOURCE_MAIN, VALID_OPACITY,
+        TrayLeftClickBehavior, MENU_LAUNCH_AT_LOGIN, MENU_POSITION_BOTTOM_LEFT,
+        MENU_POSITION_BOTTOM_RIGHT, MENU_POSITION_CENTER, MENU_POSITION_TOP_LEFT,
+        MENU_POSITION_TOP_RIGHT, MENU_RADAR_SOURCE_DISTRIBUTED, MENU_RADAR_SOURCE_MAIN,
+        VALID_OPACITY,
     };
     #[cfg(windows)]
     use super::{claim_taskbar_monitor, taskbar_failure_preferences};
@@ -1861,8 +1924,75 @@ mod tests {
         assert!(!preferences.position_locked);
         assert!(preferences.show_taskbar_window);
         assert!(preferences.show_main_window);
+        assert!(!preferences.launch_at_login);
         assert_eq!(preferences.opacity_percent, 100);
         assert_eq!(preferences.radar_source, RadarSource::Main);
+    }
+
+    #[test]
+    fn legacy_preferences_default_start_at_login_to_disabled() {
+        let legacy = serde_json::json!({
+            "alwaysOnTop": false,
+            "clickThrough": true,
+            "positionLocked": true,
+            "showTaskbarWindow": false,
+            "showMainWindow": true,
+            "opacityPercent": 70,
+            "radarSource": "distributed"
+        });
+
+        let preferences =
+            serde_json::from_value::<DesktopPreferences>(legacy).expect("legacy preferences");
+
+        assert!(!preferences.launch_at_login);
+        assert_eq!(preferences.radar_source, RadarSource::Distributed);
+        assert_eq!(preferences.opacity_percent, 70);
+    }
+
+    #[test]
+    fn start_at_login_uses_the_camel_case_wire_field_and_menu_option() {
+        let preferences =
+            DesktopPreferences::default().with_option(DesktopOption::LaunchAtLogin, true);
+        let serialized = serde_json::to_value(&preferences).expect("serialized preferences");
+
+        assert_eq!(
+            serialized
+                .get("launchAtLogin")
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            DesktopOption::from_menu_id(MENU_LAUNCH_AT_LOGIN),
+            Some(DesktopOption::LaunchAtLogin)
+        );
+        assert!(DesktopOption::LaunchAtLogin.enabled(&preferences));
+    }
+
+    #[test]
+    fn start_at_login_transition_preserves_unrelated_preferences() {
+        let previous = DesktopPreferences {
+            always_on_top: false,
+            click_through: true,
+            position_locked: true,
+            show_taskbar_window: false,
+            show_main_window: true,
+            launch_at_login: false,
+            opacity_percent: 60,
+            radar_source: RadarSource::Distributed,
+        };
+
+        let next = previous
+            .clone()
+            .with_option(DesktopOption::LaunchAtLogin, true);
+
+        assert!(next.launch_at_login);
+        assert_eq!(next.always_on_top, previous.always_on_top);
+        assert_eq!(next.click_through, previous.click_through);
+        assert_eq!(next.position_locked, previous.position_locked);
+        assert_eq!(next.show_taskbar_window, previous.show_taskbar_window);
+        assert_eq!(next.show_main_window, previous.show_main_window);
+        assert_eq!(next.opacity_percent, previous.opacity_percent);
+        assert_eq!(next.radar_source, previous.radar_source);
     }
 
     #[test]
@@ -1895,6 +2025,7 @@ mod tests {
             position_locked: true,
             show_taskbar_window: false,
             show_main_window: true,
+            launch_at_login: true,
             opacity_percent: 70,
             radar_source: RadarSource::Main,
         };
@@ -1907,6 +2038,7 @@ mod tests {
         assert_eq!(next.position_locked, previous.position_locked);
         assert_eq!(next.show_taskbar_window, previous.show_taskbar_window);
         assert_eq!(next.show_main_window, previous.show_main_window);
+        assert_eq!(next.launch_at_login, previous.launch_at_login);
         assert_eq!(next.opacity_percent, previous.opacity_percent);
     }
 

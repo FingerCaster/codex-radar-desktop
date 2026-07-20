@@ -21,7 +21,8 @@
   "children": [
     "07-19-taskbar-leader-companion",
     "07-20-window-position-presets",
-    "07-20-distributed-radar-source-switch"
+    "07-20-distributed-radar-source-switch",
+    "07-20-settings-context-menu-autostart"
   ],
   "parent": null,
   "relatedFiles": [],

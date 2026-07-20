@@ -4,6 +4,7 @@ mod radar;
 use std::io;
 
 use tauri::{Manager, RunEvent, WindowEvent};
+use tauri_plugin_autostart::MacosLauncher;
 
 use radar::{get_radar_snapshot, refresh_radar, start_background_polling, RadarService};
 
@@ -12,6 +13,10 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             let controller =
                 desktop::DesktopController::new(app.handle()).map_err(io::Error::other)?;
@@ -53,6 +58,7 @@ pub fn run() {
             desktop::get_main_expanded,
             desktop::set_desktop_option,
             desktop::set_desktop_opacity,
+            desktop::set_desktop_radar_source,
             desktop::update_companion_projection,
             desktop::set_window_expanded,
             desktop::hide_window,

@@ -2,9 +2,9 @@
 
 ## 1. Scope / Trigger
 
-This contract applies when changing `App`, `TaskbarView`, desktop preference
-types/adapters/hooks, taskbar CSS, drag regions, or radar hook behavior shared
-by the `main` and `taskbar` renderers.
+This contract applies when changing `App`, `SettingsView`, `TaskbarView`,
+desktop preference types/adapters/hooks, taskbar/settings CSS, drag regions,
+or radar hook behavior shared by the `main` and `taskbar` renderers.
 
 ## 2. Signatures
 
@@ -14,12 +14,14 @@ Renderer boundaries are owned by `src/lib/desktop.ts`:
 getDesktopPreferences() -> DesktopPreferences
 setDesktopOption(option, enabled) -> DesktopPreferences
 setDesktopOpacity(opacityPercent) -> DesktopPreferences
+setDesktopRadarSource(source) -> DesktopPreferences
 getMainExpanded() -> boolean
 showMainDetails() -> void
 showDesktopContextMenu() -> void
 updateCompanionProjection(projection) -> void
 onDesktopPreferencesUpdated(handler) -> UnlistenFn
 onMainExpanded(handler) -> UnlistenFn
+onShowMainDetails(handler) -> UnlistenFn
 ```
 
 `useRadar({ passive: true, source, activationEpoch, enabled })` is the taskbar
@@ -30,8 +32,19 @@ before radar hydration.
 
 ## 3. Contracts
 
-- `App` branches on the current WebView label. `main` renders compact/detail;
-  `taskbar` renders only `TaskbarView`.
+- `App` branches on the current WebView label. `main` owns an explicit
+  `compact | detail | settings` view state; `taskbar` renders only
+  `TaskbarView`. Settings uses the existing expanded native geometry and never
+  creates another WebView.
+- Opening settings from compact expands natively before mounting it and stores
+  compact as the return view. Opening from detail performs no resize and
+  returns to detail. Back/Escape update React only after any required native
+  shrink succeeds; failure leaves settings mounted in coherent expanded
+  geometry.
+- `SettingsView` is presentational. It receives the complete accepted
+  `DesktopPreferences`, semantic option/opacity/source callbacks, one pending
+  discriminator, and a bounded error. It never invokes Tauri or optimistically
+  mutates a preference.
 - The taskbar renderer hydrates the Rust snapshot and listens to snapshot and
   failure events, but it does not call refresh, request notification
   permission, listen for refresh requests, or register online recovery.
@@ -39,6 +52,9 @@ before radar hydration.
   never parse upstream JSON or call Tauri `invoke` directly.
 - Validate every desktop preference payload at the IPC/event boundary before
   applying drag regions, opacity, visibility projection, or layout.
+- The complete preference guard requires `launchAtLogin` to be a boolean.
+  Renderer code treats it like every other native preference; Rust owns OS
+  registration, reconciliation, persistence, and rollback.
 - Register the desktop-preference event listener before calling
   `getDesktopPreferences`. If an event arrives while the initial request is in
   flight, the event wins and the delayed initial success/failure is ignored.
@@ -65,6 +81,12 @@ before radar hydration.
   registration so a companion click cannot be lost during renderer startup.
   If `onMainExpanded` fires while the initial read is pending, that event wins;
   ignore both a delayed initial value and a delayed initial error.
+- Start `onMainExpanded` and `onShowMainDetails` registration concurrently,
+  retain each successful unlistener independently, and call
+  `getMainExpanded` only after both registration promises settle. A native
+  `desktop://show-main-details` intent explicitly leaves settings for detail;
+  ordinary expanded geometry events preserve settings. Cleanup must also
+  dispose a listener whose promise resolves after unmount.
 
 ## 4. Validation & Error Matrix
 
@@ -78,6 +100,10 @@ before radar hydration.
 | Fixed taskbar projection | Show model/effort/status above IQ/value/ties within 168px |
 | Position locked | Render no drag-region attributes |
 | Native action rejects | Keep current view/state and expose the existing recovery path |
+| Setting command pending | Disable settings/back controls, suppress duplicate updates, and show one bounded saving status |
+| Setting command rejects | Keep event-owned values selected, clear pending state, and show a bounded alert |
+| Compact return resize rejects | Keep settings mounted in expanded geometry and expose the window error |
+| Show-details intent arrives while listener registration is in flight | The concurrently started intent listener receives it and selects detail; a delayed geometry registration is cleaned up safely |
 
 ## 5. Good / Base / Bad Cases
 
@@ -87,6 +113,9 @@ before radar hydration.
   an intermediate main snapshot or a second polling loop.
 - Good: a tied leader renders `+N` without changing taskbar dimensions and the
   accessible name includes the full tie count.
+- Good: start-at-login toggled in settings remains pending until Rust verifies
+  the OS registration, then the complete preference event selects the new
+  value and the shared native menu check matches it.
 - Base: no snapshot renders `暂无数据`, `--`, and a bounded status label.
 - Bad: a second `useRadar()` active instance would duplicate refresh-request,
   notification, and online side effects even with backend single-flight.
@@ -94,11 +123,14 @@ before radar hydration.
   look detached from the system taskbar and consumes layout pixels.
 - Bad: adding an optional wider mode can cover task buttons or another embedded
   monitor and is not part of the desktop preference contract.
+- Bad: sequentially awaiting the expanded listener before starting the details
+  listener can strand a visible settings page after a taskbar details click.
 
 ## 6. Tests Required
 
 - Desktop boundary tests accept the complete camel-case preference object and
-  reject missing, mistyped, unsupported opacity, and unknown source values.
+  reject missing/mistyped `launchAtLogin`, unsupported opacity, and unknown
+  source values.
 - Preference-hook tests prove listener-before-read ordering, event-wins
   hydration, late registration cleanup, same-source epoch stability, and
   main -> distributed -> main epoch accumulation.
@@ -108,7 +140,13 @@ before radar hydration.
   initial refresh; they also prove disabled hydration reads no cache and a
   source change synchronously masks the old projection.
 - App runtime tests prove an expanded event received during hydration is not
-  overwritten by a delayed `getMainExpanded` success or failure.
+  overwritten by a delayed `getMainExpanded` success or failure; details
+  intent registration starts even while expanded registration is unresolved;
+  late registrations are cleaned up; settings restores compact/detail; and a
+  failed shrink keeps settings mounted.
+- Settings component tests assert accessible checkbox/segmented/back controls,
+  exact semantic values, global pending disablement, and bounded errors without
+  optimistic selection.
 - Taskbar component tests assert details click, context-menu callback, effort,
   freshness, tie marker, accessible name, and that the polite status live
   region is outside the primary button.
@@ -139,3 +177,22 @@ const radar = useRadar({
 
 The passive projection remains live without becoming a second side-effect
 owner.
+
+Wrong:
+
+```tsx
+const expandedUnlisten = await onMainExpanded(handleExpanded);
+const detailsUnlisten = await onShowMainDetails(handleDetails);
+```
+
+Correct:
+
+```tsx
+const registrations = await Promise.allSettled([
+  onMainExpanded(handleExpanded),
+  onShowMainDetails(handleDetails),
+]);
+```
+
+Start both listener registrations before awaiting either one, then retain and
+clean up each fulfilled unlistener independently before reading initial state.

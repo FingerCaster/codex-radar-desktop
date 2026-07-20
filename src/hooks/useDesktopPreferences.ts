@@ -5,6 +5,7 @@ import {
   onDesktopPreferencesUpdated,
   setDesktopOpacity,
   setDesktopOption,
+  setDesktopRadarSource,
 } from "../lib/desktop";
 import {
   DEFAULT_DESKTOP_PREFERENCES,
@@ -12,6 +13,7 @@ import {
   type DesktopOpacityPercent,
   type DesktopPreferences,
 } from "../types/desktop";
+import type { RadarSource } from "../types/radar";
 
 export interface DesktopPreferencesViewState {
   preferences: DesktopPreferences;
@@ -90,6 +92,17 @@ export function useDesktopPreferences() {
     }
   }, []);
 
+  const setRadarSource = useCallback(async (source: RadarSource) => {
+    try {
+      const preferences = await setDesktopRadarSource(source);
+      dispatch({ type: "preferences-received", preferences });
+      return preferences;
+    } catch (error) {
+      dispatch({ type: "preferences-failed", message: errorMessage(error) });
+      throw error;
+    }
+  }, []);
+
   useEffect(() => {
     let disposed = false;
     let receivedUpdateDuringHydration = false;
@@ -142,7 +155,7 @@ export function useDesktopPreferences() {
     };
   }, []);
 
-  return { ...state, setOption, setOpacity };
+  return { ...state, setOption, setOpacity, setRadarSource };
 }
 
 function errorMessage(error: unknown): string {

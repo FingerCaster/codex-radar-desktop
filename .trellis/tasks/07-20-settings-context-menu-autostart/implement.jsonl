@@ -1,0 +1,10 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend package invariants and required reading routes."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Accessible semantic component actions, icon controls, and stable main-window layout."}
+{"file":".trellis/spec/frontend/desktop-companion-guidelines.md","reason":"Desktop preference hydration, taskbar context menu, and renderer ownership contracts."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Strict IPC/event validation for the extended DesktopPreferences payload."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend tests, fixed dimensions, accessibility, and validation commands."}
+{"file":".trellis/spec/backend/index.md","reason":"Backend desktop module ownership and spec routing."}
+{"file":".trellis/spec/backend/desktop-companion-contract.md","reason":"Rust-owned preferences, shared menu transactions, persistence, and platform behavior."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Rust test placement and full quality gates."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"End-to-end preference flow must remain consistent across native state, IPC, and UI."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse the existing desktop option/menu transaction and avoid duplicate state owners."}

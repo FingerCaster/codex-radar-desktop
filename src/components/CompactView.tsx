@@ -1,4 +1,11 @@
-import { ChevronRight, EyeOff, Maximize2, Radar, RefreshCw } from "lucide-react";
+import {
+  ChevronRight,
+  EyeOff,
+  Maximize2,
+  Radar,
+  RefreshCw,
+  Settings,
+} from "lucide-react";
 import { IconButton } from "./IconButton";
 import { getModelDisplayName } from "../lib/model";
 import {
@@ -56,6 +63,7 @@ export function CompactView({
   positionLocked,
   onRefresh,
   onExpand,
+  onOpenSettings,
   onHide,
 }: CompactViewProps) {
   const rankings = snapshot?.rankings ?? [];
@@ -103,6 +111,7 @@ export function CompactView({
             label={status === "refreshing" ? "正在刷新" : "刷新数据"}
             onClick={onRefresh}
           />
+          <IconButton icon={Settings} label="打开设置" onClick={onOpenSettings} />
           <IconButton icon={EyeOff} label="隐藏窗口" onClick={onHide} />
           <IconButton icon={Maximize2} label="展开详情" onClick={onExpand} />
         </div>

@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Review all frontend invariants affected by the settings surface."}
+{"file":".trellis/spec/frontend/desktop-companion-guidelines.md","reason":"Verify taskbar/menu behavior and complete preference hydration."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Verify accepted and rejected IPC/event payloads for the new field."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run and interpret frontend quality, accessibility, and layout gates."}
+{"file":".trellis/spec/backend/index.md","reason":"Review backend ownership and platform boundaries."}
+{"file":".trellis/spec/backend/desktop-companion-contract.md","reason":"Verify transaction ordering, menu synchronization, recovery, and persistence."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Run Rust formatting, clippy, tests, and thread-affinity review."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace launchAtLogin through native state, serde, commands, events, guards, and controls."}

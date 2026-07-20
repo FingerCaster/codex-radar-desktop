@@ -10,7 +10,8 @@ export type DesktopBooleanOption =
   | "clickThrough"
   | "positionLocked"
   | "showTaskbarWindow"
-  | "showMainWindow";
+  | "showMainWindow"
+  | "launchAtLogin";
 
 export interface DesktopPreferences {
   alwaysOnTop: boolean;
@@ -18,6 +19,7 @@ export interface DesktopPreferences {
   positionLocked: boolean;
   showTaskbarWindow: boolean;
   showMainWindow: boolean;
+  launchAtLogin: boolean;
   opacityPercent: DesktopOpacityPercent;
   radarSource: RadarSource;
 }
@@ -28,6 +30,7 @@ export const DEFAULT_DESKTOP_PREFERENCES: Readonly<DesktopPreferences> = {
   positionLocked: false,
   showTaskbarWindow: true,
   showMainWindow: true,
+  launchAtLogin: false,
   opacityPercent: 100,
   radarSource: "main",
 };
@@ -41,6 +44,24 @@ export interface CompanionProjection {
 }
 
 export type DesktopAction = () => void | Promise<void>;
+
+export type DesktopSettingsPending =
+  | DesktopBooleanOption
+  | "radarSource"
+  | "opacityPercent";
+
+export interface SettingsViewProps {
+  preferences: DesktopPreferences;
+  pending: DesktopSettingsPending | null;
+  error: string | null;
+  onBack: DesktopAction;
+  onSetOption: (
+    option: DesktopBooleanOption,
+    enabled: boolean,
+  ) => void | Promise<void>;
+  onSetOpacity: (opacity: DesktopOpacityPercent) => void | Promise<void>;
+  onSetRadarSource: (source: RadarSource) => void | Promise<void>;
+}
 
 export interface TaskbarViewProps {
   projection: CompanionProjection;

@@ -7,7 +7,7 @@ This directory documents the Rust/Tauri backend under `src-tauri/`. The backend 
 | Document | Covers |
 | --- | --- |
 | [Directory Structure](./directory-structure.md) | Module ownership and placement rules |
-| [Desktop Companion Contract](./desktop-companion-contract.md) | Native desktop state, tray/menu behavior, taskbar geometry, persistence, and platform routing |
+| [Desktop Companion Contract](./desktop-companion-contract.md) | Native desktop state, shared tray/taskbar menu, start-at-login, geometry, persistence, and platform routing |
 | [Radar Data Contract](./radar-data-contract.md) | Primary/distributed JSON, normalization, source-isolated validators/cache, Tauri events, and errors |
 | [Database Guidelines](./database-guidelines.md) | The deliberate no-database design and in-memory state |
 | [Error Handling](./error-handling.md) | Typed source/service failures and last-known-good behavior |

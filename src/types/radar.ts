@@ -53,11 +53,13 @@ export interface RadarViewProps {
 
 export interface CompactViewProps extends RadarViewProps {
   onExpand: RadarAction;
+  onOpenSettings: RadarAction;
 }
 
 export interface DetailViewProps extends RadarViewProps {
   onCollapse: RadarAction;
   onOpenSource: OpenSourceAction;
+  onOpenSettings: RadarAction;
 }
 
 export const RADAR_STATUS_LABELS: Record<RadarStatus, string> = {

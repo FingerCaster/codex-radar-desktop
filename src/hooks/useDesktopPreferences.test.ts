@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getDesktopPreferences,
   onDesktopPreferencesUpdated,
+  setDesktopRadarSource,
 } from "../lib/desktop";
 import { DEFAULT_DESKTOP_PREFERENCES } from "../types/desktop";
 import type { DesktopPreferences } from "../types/desktop";
@@ -18,6 +19,7 @@ vi.mock("../lib/desktop", () => ({
   onDesktopPreferencesUpdated: vi.fn(),
   setDesktopOpacity: vi.fn(),
   setDesktopOption: vi.fn(),
+  setDesktopRadarSource: vi.fn(),
 }));
 
 describe("desktopPreferencesReducer", () => {
@@ -92,6 +94,10 @@ describe("useDesktopPreferences initialization", () => {
       ...DEFAULT_DESKTOP_PREFERENCES,
     });
     vi.mocked(onDesktopPreferencesUpdated).mockResolvedValue(vi.fn());
+    vi.mocked(setDesktopRadarSource).mockResolvedValue({
+      ...DEFAULT_DESKTOP_PREFERENCES,
+      radarSource: "distributed",
+    });
   });
 
   it("registers first and does not let a late initial read replace a newer event", async () => {
@@ -154,6 +160,19 @@ describe("useDesktopPreferences initialization", () => {
 
     await waitFor(() => expect(unlisten).toHaveBeenCalledOnce());
     expect(getDesktopPreferences).not.toHaveBeenCalled();
+  });
+
+  it("projects the complete accepted source command response", async () => {
+    const { result } = renderHook(() => useDesktopPreferences());
+    await waitFor(() => expect(result.current.hydrated).toBe(true));
+
+    await act(async () => {
+      await result.current.setRadarSource("distributed");
+    });
+
+    expect(setDesktopRadarSource).toHaveBeenCalledWith("distributed");
+    expect(result.current.preferences.radarSource).toBe("distributed");
+    expect(result.current.radarActivationEpoch).toBe(1);
   });
 });
 

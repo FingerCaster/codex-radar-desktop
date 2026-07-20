@@ -14,11 +14,13 @@ import {
 import {
   RADAR_STATUS_LABELS,
   type RadarSnapshot,
+  type RadarSource,
   type RadarStatus,
 } from "../types/radar";
 
 const PREFERENCES_UPDATED_EVENT = "desktop://preferences-updated";
 const MAIN_EXPANDED_EVENT = "desktop://main-expanded";
+const SHOW_MAIN_DETAILS_EVENT = "desktop://show-main-details";
 
 const scoreFormatter = new Intl.NumberFormat("zh-CN", {
   maximumFractionDigits: 2,
@@ -34,6 +36,7 @@ export function isDesktopPreferences(
     typeof value.positionLocked === "boolean" &&
     typeof value.showTaskbarWindow === "boolean" &&
     typeof value.showMainWindow === "boolean" &&
+    typeof value.launchAtLogin === "boolean" &&
     isDesktopOpacityPercent(value.opacityPercent) &&
     isRadarSource(value.radarSource)
   );
@@ -87,6 +90,14 @@ export async function setDesktopOpacity(
   );
 }
 
+export async function setDesktopRadarSource(
+  source: RadarSource,
+): Promise<DesktopPreferences> {
+  return requireDesktopPreferences(
+    await invoke<unknown>("set_desktop_radar_source", { source }),
+  );
+}
+
 export async function showMainDetails(): Promise<void> {
   await invoke("show_main_details");
 }
@@ -127,6 +138,10 @@ export function onMainExpanded(
       handler(event.payload);
     }
   });
+}
+
+export function onShowMainDetails(handler: () => void): Promise<UnlistenFn> {
+  return listen(SHOW_MAIN_DETAILS_EVENT, () => handler());
 }
 
 function requireDesktopPreferences(value: unknown): DesktopPreferences {

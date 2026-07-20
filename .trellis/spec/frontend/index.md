@@ -8,7 +8,8 @@ The frontend renders compact/detail `main` projections and a passive Windows
 `taskbar` projection of Rust-normalized radar state. Rust owns primary and
 distributed parsing, ranking, source-specific conditional refresh, polling,
 notifications, desktop preferences,
-tray actions, and native window lifecycle. React owns presentation,
+tray actions, and native window lifecycle. React owns presentation plus the
+in-place settings projection,
 source-specific last-rendered cache hydration, and live command/event synchronization.
 
 Read [the backend radar data contract](../backend/radar-data-contract.md) for the normalized cross-layer payload and Rust failure behavior. Frontend code must not parse either upstream JSON shape.
@@ -18,12 +19,12 @@ Read [the backend radar data contract](../backend/radar-data-contract.md) for th
 | Guide | Concrete coverage |
 |---|---|
 | [Directory Structure](./directory-structure.md) | Actual `src/` tree, dependency direction, module ownership, naming |
-| [Component Guidelines](./component-guidelines.md) | `App`, compact/detail views, exact props, actions, accessibility |
+| [Component Guidelines](./component-guidelines.md) | `App`, compact/detail/settings views, exact props, actions, accessibility |
 | [Hook Guidelines](./hook-guidelines.md) | `useRadar`, command/event lifecycle, listener cleanup, cache effects |
 | [State Management](./state-management.md) | Reducer action union, complete status transition matrix, last-known-good invariant |
 | [Type Safety](./type-safety.md) | Snapshot/failure types, IPC signatures, cache key, runtime guard, validation/error matrix |
 | [Quality Guidelines](./quality-guidelines.md) | Commands, test conventions, CSS fixed dimensions, high-DPI and review checks |
-| [Desktop Companion Guidelines](./desktop-companion-guidelines.md) | Main/taskbar renderer split, passive radar mode, desktop IPC, fixed companion layout |
+| [Desktop Companion Guidelines](./desktop-companion-guidelines.md) | Main/taskbar renderer split, compact/detail/settings state, desktop IPC, fixed companion layout |
 
 All seven guides describe the current implementation and are active.
 

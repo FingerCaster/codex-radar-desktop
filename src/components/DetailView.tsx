@@ -4,6 +4,7 @@ import {
   Minimize2,
   Radar,
   RefreshCw,
+  Settings,
   Trophy,
   WifiOff,
 } from "lucide-react";
@@ -112,6 +113,7 @@ export function DetailView({
   onCollapse,
   onHide,
   onOpenSource,
+  onOpenSettings,
 }: DetailViewProps) {
   const rankings = snapshot?.rankings ?? [];
   const visibleRankings = rankings.slice(0, 5);
@@ -160,6 +162,7 @@ export function DetailView({
             label={status === "refreshing" ? "正在刷新" : "刷新数据"}
             onClick={onRefresh}
           />
+          <IconButton icon={Settings} label="打开设置" onClick={onOpenSettings} />
           <IconButton icon={Minimize2} label="收起详情" onClick={onCollapse} />
           <IconButton icon={EyeOff} label="隐藏窗口" onClick={onHide} />
         </div>

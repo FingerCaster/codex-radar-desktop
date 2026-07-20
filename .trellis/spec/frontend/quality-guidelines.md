@@ -24,6 +24,7 @@ Tests are colocated with the unit under test:
 | File | Contract currently covered |
 |---|---|
 | `src/App.test.tsx` | main expanded-state listener-before-read ordering and event-wins success/failure hydration |
+| `src/components/SettingsView.test.tsx` | accessible settings controls, semantic actions, pending disablement, and failure projection |
 | `src/hooks/useDesktopPreferences.test.ts` | listener-before-read hydration, event-wins ordering, late unlisten cleanup, and source activation epoch increments |
 | `src/hooks/useRadar.test.ts` | source selection/cache transitions; same-source retention/staleness; delayed cross-source success/failure rejection |
 | `src/hooks/useRadar.runtime.test.tsx` | disabled hydration barrier, passive renderer, active recovery, synchronous old-source masking, and deferred A-B-A command rejection |
@@ -44,6 +45,9 @@ When changing state transitions, assert status, snapshot identity, and error kin
 | `.compact-summary` | `64px` height, columns `minmax(0, 1fr) 86px 18px` |
 | `.icon-button` | `26px x 26px`, `flex: 0 0 26px` |
 | `.detail-view` | full available window, rows `42px minmax(0, 1fr)` |
+| `.settings-view` | full expanded window, rows `42px minmax(0, 1fr)` |
+| `.settings-segmented` | stable `30px` height; two source or five opacity tracks |
+| `.settings-option` | stable minimum `40px` row with a fixed checkbox track |
 | `.detail-content` | rows `96px 84px minmax(0, 1fr) 60px` |
 | `.taskbar-view` | fixed `168px x 30px` |
 | `.taskbar-surface` | rows `12px 14px` plus `2px` vertical padding; transparent and borderless |
@@ -112,6 +116,12 @@ Manual refresh must remain available in stale and unavailable states. Detail vie
 - Are source attribution and fixed opener behavior intact?
 - Do compact and detail dimensions remain stable at high DPI?
 - Are accessible labels, busy/status announcements, focus, and keyboard collapse preserved?
+- Do settings compact/detail return paths update React only after native resize
+  success, and does an external show-details intent always leave settings?
+- Are expanded/details listeners started together, cleaned up independently
+  after late registration, and followed by the initial state read?
+- Do settings controls retain event-owned values, block duplicate requests,
+  and clear pending on both command success and failure?
 - Are focused unit tests added and `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` expected to pass?
 
 ## Wrong vs Correct

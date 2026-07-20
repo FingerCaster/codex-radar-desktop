@@ -95,10 +95,11 @@ describe("TaskbarView", () => {
 
   it("opens the native shared menu on context-menu input", () => {
     const onOpenContextMenu = vi.fn();
+    const onShowDetails = vi.fn();
     render(
       <TaskbarView
         onOpenContextMenu={onOpenContextMenu}
-        onShowDetails={vi.fn()}
+        onShowDetails={onShowDetails}
         projection={projection}
         status="ready"
       />,
@@ -106,5 +107,6 @@ describe("TaskbarView", () => {
 
     fireEvent.contextMenu(screen.getByRole("button"));
     expect(onOpenContextMenu).toHaveBeenCalledOnce();
+    expect(onShowDetails).not.toHaveBeenCalled();
   });
 });

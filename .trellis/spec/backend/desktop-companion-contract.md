@@ -23,6 +23,7 @@ DesktopPreferences {
   positionLocked: boolean,
   showTaskbarWindow: boolean,
   showMainWindow: boolean,
+  launchAtLogin: boolean,
   opacityPercent: 100 | 90 | 80 | 70 | 60,
   radarSource: "main" | "distributed"
 }
@@ -35,6 +36,7 @@ get_desktop_preferences() -> DesktopPreferences
 get_main_expanded() -> boolean
 set_desktop_option(option, enabled) -> DesktopPreferences
 set_desktop_opacity(opacityPercent) -> DesktopPreferences
+set_desktop_radar_source(source) -> DesktopPreferences
 set_window_expanded(expanded) -> ()
 show_main_details() -> DesktopPreferences
 show_desktop_context_menu() -> ()
@@ -47,6 +49,7 @@ Events:
 ```text
 desktop://preferences-updated -> complete DesktopPreferences
 desktop://main-expanded -> boolean
+desktop://show-main-details -> ()
 ```
 
 Native-only position persistence is deliberately outside the renderer DTO:
@@ -139,6 +142,25 @@ desktop.radar-source.distributed -> 分布式
 - Menu toggles read, invert, apply, persist, and commit under the controller's
   preference lock. This prevents rapid clicks from applying the same stale
   prior value twice.
+- The shared menu and main settings view contain one `开机自启` check backed by
+  `DesktopPreferences.launchAtLogin`. Rust registers `tauri-plugin-autostart`
+  before `DesktopController::new`; controller construction reads
+  `autolaunch().is_enabled()` before building the menu and replaces the loaded
+  JSON value when that native read succeeds. A legacy/missing field defaults
+  to `false`; a native read failure logs and retains the normalized persisted
+  value so tray recovery still starts.
+- A start-at-login transition uses the ordinary option transaction. Apply the
+  plugin enable/disable operation, verify `is_enabled()` equals the request,
+  persist, synchronize the shared menu, commit memory, then emit the complete
+  preference. Any apply/verification/persist/menu failure restores the prior
+  native registration and preference/menu state best-effort and emits no
+  proposed value. Renderers never call the plugin or persist another copy.
+- Commands that can wait for native window/menu work while the Windows taskbar
+  monitor holds the preference guard use `#[tauri::command(async)]`. Tauri
+  blocking commands execute in the current invoke context; letting that
+  context wait for the preference lock can deadlock when the monitor holds it
+  while a Wry getter waits for the event loop. The option transaction itself
+  remains synchronous and never carries a standard mutex guard across `await`.
 - The shared menu contains `雷达数据源` with exactly two independent check
   items displayed as one exclusive choice: `主站` and `分布式`. Menu sync always
   derives both checks from `DesktopPreferences.radarSource`; clicking the
@@ -181,6 +203,11 @@ desktop.radar-source.distributed -> 分布式
 | Safety-demotion persistence/menu/event step fails | Keep the safe native/runtime projection and emit one aggregated warning; never restore the overlap |
 | Existing macOS title is hidden | Set an explicit empty title |
 | Native option application fails | Do not publish or retain the proposed preference |
+| Native start-at-login read succeeds at startup | Replace the loaded field before menu construction and persist the reconciled complete preference during initialization |
+| Native start-at-login read fails at startup | Log, retain the normalized persisted field, and keep the app/tray available |
+| Start-at-login apply or verification fails | Restore the prior registration best-effort; do not persist, check, or emit the proposal |
+| Preference/menu commit fails after start-at-login apply | Restore the prior native registration and persisted/menu state best-effort; keep memory/event authoritative at the prior value |
+| Renderer setting competes with taskbar monitor Wry work | Run the command through Tauri async dispatch so the event loop can service the monitor; the command must eventually resolve or reject |
 | Source preference/menu commit fails | Keep the old service token and restore authoritative old checks; no transient source can refresh or publish |
 | Selected source network refresh fails | Keep the new persisted selection and source-specific cached projection; publish its source-tagged failure |
 | Preference JSON is absent or invalid | Load normalized defaults |
@@ -210,12 +237,20 @@ desktop.radar-source.distributed -> 分布式
   or moving the main window.
 - Base: a valid preference file hydrates menu checks before the first state
   event, with both tray and at least one projection recoverable.
+- Base: a legacy preference without `launchAtLogin` and no native registration
+  starts unchecked and writes `launchAtLogin: false` during initialization.
+- Good: enabling start-at-login creates a native registration, verification
+  succeeds, and the settings view plus shared tray/taskbar menu receive one
+  complete checked preference event; disabling performs the inverse.
 - Base: no position file keeps Tauri's configured centered startup; the first
   successful movement creates the private position file.
 - Bad: taskbar height is less than the requested physical height; companion
   placement fails and the main/tray path remains usable.
 - Bad: two toggle events arrive quickly; each observes the state committed by
   the previous event rather than the same stale snapshot.
+- Bad: a blocking settings command waits for the preference guard on the event
+  loop while the monitor owns that guard and waits on `window.scale_factor()`;
+  neither side can advance, so settings remains pending indefinitely.
 - Bad: two source selections arrive quickly; without the async transition gate,
   the last service value and last persisted value can cross. The serialized
   transaction must leave both on the same final source.
@@ -242,8 +277,14 @@ desktop.radar-source.distributed -> 分布式
   resize transactions are marshalled to the main thread without holding it.
 - Preference tests assert default recovery, invalid opacity normalization,
   mutually recoverable visibility, exclusive opacity/source checks, legacy
-  `radarSource: main`, exact `main/distributed` serialization, unchanged window
-  settings across source selection, and repeated Windows file writes.
+  `radarSource: main`, legacy `launchAtLogin: false`, exact camel-case boolean
+  and `main/distributed` serialization, unchanged window settings across source
+  and start-at-login selection, and repeated Windows file writes.
+- Windows native smoke tests toggle `showTaskbarWindow` through renderer IPC
+  while the monitor runs and assert both commands settle, the complete
+  preference round-trips, and no control remains pending. Start-at-login smoke
+  tests verify the native registration appears/disappears and restore it to the
+  pre-test value.
 - Platform-routing tests assert macOS tray click opens details while other
   platforms retain the tray toggle behavior.
 - Run `cargo fmt`, `cargo check --all-targets --all-features`, `cargo clippy
@@ -319,3 +360,28 @@ if self.lock_main_position_state()?.revision != revision {
 Capture without the gate, then serialize and revision-check the write. Native
 resize transactions use `run_on_main_thread` so their getter/setter sequence is
 executed by the event loop itself.
+
+Wrong:
+
+```rust
+#[tauri::command]
+pub fn set_desktop_option(...) -> Result<DesktopPreferences, String> {
+    state.set_option(&app, option, enabled)
+}
+```
+
+This blocking invoke can occupy the event loop while waiting for a preference
+guard held by taskbar monitor code that is itself waiting for a Wry event-loop
+reply.
+
+Correct:
+
+```rust
+#[tauri::command(async)]
+pub fn set_desktop_option(...) -> Result<DesktopPreferences, String> {
+    state.set_option(&app, option, enabled)
+}
+```
+
+Async command dispatch frees the event loop while preserving the existing
+synchronous transaction and lock ordering inside `set_option`.

@@ -13,6 +13,18 @@ describe("desktop preferences boundary", () => {
   });
 
   it("rejects missing, mistyped, and unsupported preference values", () => {
+    const missingLaunchAtLogin = Object.fromEntries(
+      Object.entries(DEFAULT_DESKTOP_PREFERENCES).filter(
+        ([key]) => key !== "launchAtLogin",
+      ),
+    );
+    expect(isDesktopPreferences(missingLaunchAtLogin)).toBe(false);
+    expect(
+      isDesktopPreferences({
+        ...DEFAULT_DESKTOP_PREFERENCES,
+        launchAtLogin: "false",
+      }),
+    ).toBe(false);
     expect(
       isDesktopPreferences({
         ...DEFAULT_DESKTOP_PREFERENCES,

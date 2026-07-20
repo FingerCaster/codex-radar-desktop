@@ -11,6 +11,7 @@ const sharedProps = {
   error: null,
   onRefresh: vi.fn(),
   onHide: vi.fn(),
+  onOpenSettings: vi.fn(),
 };
 
 describe("window drag regions", () => {
@@ -82,5 +83,32 @@ describe("window drag regions", () => {
     );
     expect(onOpenSource).toHaveBeenCalledOnce();
     expect(onOpenSource).toHaveBeenCalledWith();
+  });
+
+  it("exposes accessible settings actions in compact and detail headers", () => {
+    const onOpenSettings = vi.fn();
+    const { rerender } = render(
+      <CompactView
+        {...sharedProps}
+        onExpand={vi.fn()}
+        onOpenSettings={onOpenSettings}
+        positionLocked={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
+    expect(onOpenSettings).toHaveBeenCalledOnce();
+
+    rerender(
+      <DetailView
+        {...sharedProps}
+        onCollapse={vi.fn()}
+        onOpenSettings={onOpenSettings}
+        onOpenSource={vi.fn()}
+        positionLocked={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(2);
   });
 });

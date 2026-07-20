@@ -5,8 +5,8 @@
 ## Component Roles
 
 `src/App.tsx` is the composition root for both renderer labels. The `main`
-label uses the compact/detail composition below; the `taskbar` label renders a
-dedicated `TaskbarView`:
+label uses explicit compact/detail/settings composition; the `taskbar` label
+renders a dedicated `TaskbarView`:
 
 ```tsx
 const sharedProps = {
@@ -17,24 +17,47 @@ const sharedProps = {
   onHide: hideWindow,
 };
 
-return expanded ? (
+return mainView === "settings" ? (
+  <SettingsView
+    preferences={desktop.preferences}
+    pending={settingsPending}
+    error={settingsError}
+    onBack={closeSettings}
+    onSetOption={setSettingsOption}
+    onSetOpacity={setSettingsOpacity}
+    onSetRadarSource={setSettingsRadarSource}
+  />
+) : mainView === "detail" ? (
   <DetailView
     {...sharedProps}
     onCollapse={collapse}
+    onOpenSettings={openSettings}
     onOpenSource={() => openSourceSite(desktop.preferences.radarSource)}
   />
 ) : (
-  <CompactView {...sharedProps} onExpand={expand} />
+  <CompactView
+    {...sharedProps}
+    onExpand={expand}
+    onOpenSettings={openSettings}
+  />
 );
 ```
 
-- `App` owns `expanded` and `windowError` because those are presentation/window concerns, not radar data.
-- `CompactView` renders the leader summary and emits expand, refresh, and hide actions.
-- `DetailView` renders the leader, four metrics, at most five ranking rows, attribution, and collapse/refresh/hide/source actions.
+- `App` owns `mainView`, the settings origin/pending/error state, and
+  `windowError` because those are presentation/window concerns, not radar data.
+- `CompactView` renders the leader summary and emits expand, settings, refresh,
+  and hide actions.
+- `DetailView` renders the leader, four metrics, at most five ranking rows,
+  attribution, and collapse/settings/refresh/hide/source actions.
+- `SettingsView` renders accepted native preferences and emits semantic
+  boolean, opacity, source, and back actions. It does not import Tauri APIs,
+  persist values, or optimistically change a control.
 - `IconButton` is the shared primitive for icon-only commands.
 
 Compact and detail are mutually exclusive in the main Tauri window. The
 taskbar WebView must never mount either tree or a second detail window.
+Settings is also mutually exclusive with both radar views and reuses the
+expanded main-window geometry rather than creating a settings window.
 
 `TaskbarView` is presentational and fixed at `168 x 30`. Row one renders
 model/effort/status; row two renders IQ/value/ties. Its primary click emits
@@ -59,15 +82,24 @@ export interface RadarViewProps {
 
 export interface CompactViewProps extends RadarViewProps {
   onExpand: RadarAction;
+  onOpenSettings: RadarAction;
 }
 
 export interface DetailViewProps extends RadarViewProps {
   onCollapse: RadarAction;
   onOpenSource: OpenSourceAction;
+  onOpenSettings: RadarAction;
 }
 ```
 
 Use semantic action names (`onRefresh`, `onCollapse`) rather than passing setters or Tauri handles. Action props deliberately allow synchronous test doubles and asynchronous native implementations.
+
+`SettingsViewProps` lives in `src/types/desktop.ts`. It receives the complete
+`DesktopPreferences`, a `DesktopSettingsPending | null` discriminator, one
+bounded error, and semantic `onSetOption`, `onSetOpacity`,
+`onSetRadarSource`, and `onBack` callbacks. All settings controls are disabled
+while any native transaction is pending so concurrent UI requests cannot race
+the Rust-owned preference transaction.
 
 `IconButtonProps` extends the native button contract but removes `children`:
 
@@ -130,6 +162,10 @@ The displayed error precedence is `windowError ?? userFacingError(radar.error)`.
   visually hidden sibling. Interactive descendants must not contain the live
   region because button semantics can flatten descendant roles.
 - Icon-only controls go through `IconButton` and therefore always have an accessible label and hover title.
+- Settings binary values use labeled checkboxes; radar source and opacity use
+  grouped buttons with `aria-pressed`. Pending state sets `aria-busy`, disables
+  every setting/back control, and uses one status announcement; failure uses a
+  bounded alert while retaining accepted values.
 - Decorative Lucide icons use `aria-hidden="true"`; numeric IQ values receive explicit labels.
 - Empty rankings use a status role rather than an unlabeled decorative placeholder.
 - Keyboard focus uses the shared `button:focus-visible` outline. Do not remove it.
@@ -140,6 +176,11 @@ The displayed error precedence is `windowError ?? userFacingError(radar.error)`.
 Use semantic global classes from `src/App.css`; do not add inline size styles. The DOM structure is tied to stable grid tracks such as `.compact-summary`, `.metric-grid`, and `.ranking-row`. Text-bearing grid children require `min-width: 0` plus overflow handling so long model names cannot resize the window.
 
 Use Lucide icons for controls. Do not introduce hand-written control SVGs or text-filled pill buttons when an established icon exists.
+
+The settings view fits the existing `400 x 520` expanded logical surface. Its
+header is a fixed `42px` row; sections are unframed, separated by borders, and
+the content area may scroll vertically on a work-area-capped window. Segment
+tracks and checkbox rows must remain stable under long labels and high DPI.
 
 ## Good / Base / Bad Cases
 

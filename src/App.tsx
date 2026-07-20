@@ -3,11 +3,13 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
 import { CompactView } from "./components/CompactView";
 import { DetailView } from "./components/DetailView";
+import { SettingsView } from "./components/SettingsView";
 import { TaskbarView } from "./components/TaskbarView";
 import { useDesktopPreferences } from "./hooks/useDesktopPreferences";
 import { useRadar } from "./hooks/useRadar";
@@ -16,6 +18,7 @@ import {
   getCurrentWebviewLabel,
   getMainExpanded,
   onMainExpanded,
+  onShowMainDetails,
   showDesktopContextMenu,
   showMainDetails,
   updateCompanionProjection,
@@ -26,11 +29,20 @@ import {
   setWindowExpanded,
   type RefreshFailure,
 } from "./lib/radar";
+import type {
+  DesktopBooleanOption,
+  DesktopOpacityPercent,
+  DesktopSettingsPending,
+} from "./types/desktop";
+import type { RadarSource } from "./types/radar";
 import "./App.css";
 
 type WindowOpacityStyle = CSSProperties & {
   "--window-opacity": number;
 };
+
+type RadarView = "compact" | "detail";
+type MainView = RadarView | "settings";
 
 function userFacingError(failure: RefreshFailure | null): string | null {
   if (!failure) {
@@ -59,13 +71,23 @@ function App() {
   const webviewLabel = useMemo(() => getCurrentWebviewLabel(), []);
   const isTaskbarWindow = webviewLabel === "taskbar";
   const desktop = useDesktopPreferences();
+  const {
+    setOpacity: updateDesktopOpacity,
+    setOption: updateDesktopOption,
+    setRadarSource: updateDesktopRadarSource,
+  } = desktop;
   const radar = useRadar({
     passive: isTaskbarWindow,
     source: desktop.preferences.radarSource,
     activationEpoch: desktop.radarActivationEpoch,
     enabled: desktop.hydrated,
   });
-  const [expanded, setExpanded] = useState(false);
+  const [mainView, setMainView] = useState<MainView>("compact");
+  const [settingsOrigin, setSettingsOrigin] = useState<RadarView>("compact");
+  const [settingsPending, setSettingsPending] =
+    useState<DesktopSettingsPending | null>(null);
+  const settingsPendingRef = useRef<DesktopSettingsPending | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [windowError, setWindowError] = useState<string | null>(null);
 
   const projection = useMemo(
@@ -83,23 +105,90 @@ function App() {
     [radar.error, windowError],
   );
 
-  const changeWindowMode = useCallback(async (nextExpanded: boolean) => {
+  const resizeMainWindow = useCallback(async (nextExpanded: boolean) => {
     try {
       await setWindowExpanded(nextExpanded);
-      setExpanded(nextExpanded);
       setWindowError(null);
+      return true;
     } catch {
       setWindowError("窗口尺寸调整失败，请重试");
+      return false;
     }
   }, []);
 
-  const expand = useCallback(
-    () => changeWindowMode(true),
-    [changeWindowMode],
+  const changeRadarView = useCallback(
+    async (nextView: RadarView) => {
+      if (await resizeMainWindow(nextView === "detail")) {
+        setMainView(nextView);
+      }
+    },
+    [resizeMainWindow],
   );
-  const collapse = useCallback(
-    () => changeWindowMode(false),
-    [changeWindowMode],
+  const expand = useCallback(() => changeRadarView("detail"), [changeRadarView]);
+  const collapse = useCallback(() => changeRadarView("compact"), [changeRadarView]);
+  const openSettings = useCallback(async () => {
+    if (mainView === "settings") {
+      return;
+    }
+
+    if (mainView === "compact" && !(await resizeMainWindow(true))) {
+      return;
+    }
+
+    setSettingsOrigin(mainView);
+    setSettingsError(null);
+    setWindowError(null);
+    setMainView("settings");
+  }, [mainView, resizeMainWindow]);
+  const closeSettings = useCallback(async () => {
+    if (settingsPendingRef.current !== null) {
+      return;
+    }
+    if (settingsOrigin === "compact" && !(await resizeMainWindow(false))) {
+      setSettingsError("窗口尺寸调整失败，请重试");
+      return;
+    }
+
+    setSettingsError(null);
+    setMainView(settingsOrigin);
+  }, [resizeMainWindow, settingsOrigin]);
+  const runSettingsUpdate = useCallback(
+    async (
+      pending: DesktopSettingsPending,
+      update: () => Promise<unknown>,
+    ) => {
+      if (settingsPendingRef.current !== null) {
+        return;
+      }
+
+      settingsPendingRef.current = pending;
+      setSettingsPending(pending);
+      setSettingsError(null);
+      try {
+        await update();
+      } catch {
+        setSettingsError("设置保存失败，请重试");
+      } finally {
+        settingsPendingRef.current = null;
+        setSettingsPending(null);
+      }
+    },
+    [],
+  );
+  const setSettingsOption = useCallback(
+    (option: DesktopBooleanOption, enabled: boolean) =>
+      runSettingsUpdate(option, () => updateDesktopOption(option, enabled)),
+    [runSettingsUpdate, updateDesktopOption],
+  );
+  const setSettingsOpacity = useCallback(
+    (opacity: DesktopOpacityPercent) =>
+      runSettingsUpdate("opacityPercent", () => updateDesktopOpacity(opacity)),
+    [runSettingsUpdate, updateDesktopOpacity],
+  );
+  const setSettingsRadarSource = useCallback(
+    (source: RadarSource) =>
+      runSettingsUpdate("radarSource", () => updateDesktopRadarSource(source)),
+    [runSettingsUpdate, updateDesktopRadarSource],
   );
   const openSelectedSource = useCallback(
     () => openSourceSite(desktop.preferences.radarSource),
@@ -113,36 +202,82 @@ function App() {
 
     let disposed = false;
     let receivedExpandedDuringHydration = false;
-    let unlisten: (() => void) | undefined;
+    const unlisteners: Array<() => void> = [];
 
-    void onMainExpanded((nextExpanded) => {
-      if (!disposed) {
-        receivedExpandedDuringHydration = true;
-        setExpanded(nextExpanded);
-        setWindowError(null);
-      }
-    })
-      .then(async (registeredUnlisten) => {
+    const registerListener = async (
+      register: () => Promise<() => void>,
+    ): Promise<boolean> => {
+      try {
+        const unlisten = await register();
         if (disposed) {
-          registeredUnlisten();
+          unlisten();
         } else {
-          unlisten = registeredUnlisten;
-          const currentExpanded = await getMainExpanded();
-          if (!disposed && !receivedExpandedDuringHydration) {
-            setExpanded(currentExpanded);
-            setWindowError(null);
-          }
+          unlisteners.push(unlisten);
         }
-      })
-      .catch(() => {
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const initialize = async () => {
+      const [expandedRegistered, detailsRegistered] = await Promise.all([
+        registerListener(() =>
+          onMainExpanded((nextExpanded) => {
+            if (!disposed) {
+              receivedExpandedDuringHydration = true;
+              setMainView((current) =>
+                current === "settings"
+                  ? current
+                  : nextExpanded
+                    ? "detail"
+                    : "compact",
+              );
+              setWindowError(null);
+            }
+          }),
+        ),
+        registerListener(() =>
+          onShowMainDetails(() => {
+            if (!disposed) {
+              receivedExpandedDuringHydration = true;
+              setSettingsError(null);
+              setMainView("detail");
+              setWindowError(null);
+            }
+          }),
+        ),
+      ]);
+
+      if (disposed) {
+        return;
+      }
+
+      if (!expandedRegistered || !detailsRegistered) {
         if (!disposed && !receivedExpandedDuringHydration) {
           setWindowError("窗口状态同步失败，请重试");
         }
-      });
+        return;
+      }
+
+      try {
+        const currentExpanded = await getMainExpanded();
+        if (!disposed && !receivedExpandedDuringHydration) {
+          setMainView(currentExpanded ? "detail" : "compact");
+          setWindowError(null);
+        }
+      } catch {
+        if (!disposed && !receivedExpandedDuringHydration) {
+          setWindowError("窗口状态同步失败，请重试");
+        }
+      }
+    };
+
+    void initialize();
 
     return () => {
       disposed = true;
-      unlisten?.();
+      unlisteners.forEach((unlisten) => unlisten());
     };
   }, [isTaskbarWindow]);
 
@@ -158,14 +293,20 @@ function App() {
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && expanded) {
+      if (event.key !== "Escape") {
+        return;
+      }
+      if (mainView === "settings") {
+        event.preventDefault();
+        void closeSettings();
+      } else if (mainView === "detail") {
         event.preventDefault();
         void collapse();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [collapse, expanded, isTaskbarWindow]);
+  }, [closeSettings, collapse, isTaskbarWindow, mainView]);
 
   if (isTaskbarWindow) {
     return (
@@ -191,14 +332,29 @@ function App() {
 
   return (
     <div className="window-opacity-root main-window-root" style={opacityStyle}>
-      {expanded ? (
+      {mainView === "settings" ? (
+        <SettingsView
+          error={settingsError ?? windowError}
+          onBack={closeSettings}
+          onSetOpacity={setSettingsOpacity}
+          onSetOption={setSettingsOption}
+          onSetRadarSource={setSettingsRadarSource}
+          pending={settingsPending}
+          preferences={desktop.preferences}
+        />
+      ) : mainView === "detail" ? (
         <DetailView
           {...sharedProps}
           onCollapse={collapse}
+          onOpenSettings={openSettings}
           onOpenSource={openSelectedSource}
         />
       ) : (
-        <CompactView {...sharedProps} onExpand={expand} />
+        <CompactView
+          {...sharedProps}
+          onExpand={expand}
+          onOpenSettings={openSettings}
+        />
       )}
     </div>
   );

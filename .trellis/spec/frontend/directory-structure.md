@@ -7,11 +7,12 @@
 ```text
 src/
 |-- main.tsx                    # React root and StrictMode
-|-- App.tsx                     # View-mode composition and window actions
-|-- App.css                     # Global tokens and both fixed window layouts
+|-- App.tsx                     # Compact/detail/settings composition and window actions
+|-- App.css                     # Global tokens and fixed window/settings layouts
 |-- components/
 |   |-- CompactView.tsx         # 360 x 112 summary surface
 |   |-- DetailView.tsx          # Expanded ranking and attribution surface
+|   |-- SettingsView.tsx        # In-place desktop preference controls
 |   |-- TaskbarView.tsx         # 168 x 30 passive two-row projection
 |   `-- IconButton.tsx          # Accessible Lucide icon control
 |-- hooks/
@@ -55,9 +56,10 @@ tests -> test/fixtures.ts
   `src/lib/desktop.ts` owns desktop command/event boundaries. Components must
   not call `invoke` or `listen` directly.
 - `src/hooks/useRadar.ts` owns asynchronous synchronization and exposes a renderer-ready state projection. It does not format user-facing strings.
-- `src/App.tsx` routes by WebView label, composes main compact/detail or
-  TaskbarView, and owns transient window-mode errors. It does not parse
-  snapshots.
+- `src/App.tsx` routes by WebView label, composes main compact/detail/settings
+  or TaskbarView, and owns transient view navigation, pending preference
+  actions, and window-mode errors. It does not parse snapshots or persist
+  desktop state.
 - `src/components/` contains presentational views. Formatting helpers local to one view remain in that view; reusable pure model formatting lives in `src/lib/model.ts`.
 - `src/App.css` is global because compact and expanded layouts share tokens and structural classes. This project does not use CSS Modules, CSS-in-JS, or utility classes.
 
@@ -70,6 +72,7 @@ Place code by ownership rather than file size:
 | Need | Location | Existing example |
 |---|---|---|
 | New radar presentation | `src/components/` | `DetailView.tsx` |
+| New desktop settings presentation | `src/components/` | `SettingsView.tsx` |
 | Stateful renderer orchestration | `src/hooks/` | `useRadar.ts` |
 | Tauri IPC/event/cache boundary | `src/lib/radar.ts` | `refreshRadar`, `onSnapshotUpdated` |
 | Pure reusable formatting | `src/lib/` | `getModelDisplayName` |
