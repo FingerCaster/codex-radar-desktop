@@ -4,11 +4,13 @@ Model Radar 是一个基于 Tauri 2、React 和 TypeScript 的 Windows/macOS 桌
 
 ## 界面预览
 
-![菜单栏状态项](docs/images/menu-bar-status.png)
+![紧凑悬浮窗](docs/images/compact-window.png)
 
 ![详情窗口](docs/images/detail-window.png)
 
-![右键控制菜单](docs/images/control-menu.png)
+![任务栏状态项](docs/images/taskbar-status.png)
+
+![菜单栏弹窗](docs/images/menu-popover.png)
 
 - Windows：在主任务栏通知区域左侧嵌入榜首模型与 IQ；点击打开详情，右键显示共享控制菜单。
 - macOS：使用原生菜单栏状态项标题显示榜首模型与 IQ；点击打开详情，右键显示共享控制菜单。
