@@ -232,3 +232,36 @@ Synchronized application metadata to 0.2.0, passed the complete frontend and Rus
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Archive completed Codex Radar tasks
+
+**Date**: 2026-07-21
+**Task**: Archive completed Codex Radar tasks
+**Branch**: `main`
+
+### Summary
+
+Closed the delivered MVP, taskbar companion, distributed radar source, and one-time guideline bootstrap records after the v0.2.0 release; preserved residual macOS/native verification notes and archived all remaining active Trellis tasks.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c242465` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
