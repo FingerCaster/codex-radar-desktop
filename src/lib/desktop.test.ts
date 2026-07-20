@@ -1,11 +1,39 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  invoke: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: mocks.invoke,
+  isTauri: () => false,
+}));
 
 import { sampleSnapshot } from "../test/fixtures";
 import { DEFAULT_DESKTOP_PREFERENCES } from "../types/desktop";
 import {
   createCompanionProjection,
   isDesktopPreferences,
+  setMainWindowPositionPreset,
 } from "./desktop";
+
+beforeEach(() => {
+  mocks.invoke.mockReset();
+});
+
+describe("desktop command adapters", () => {
+  it("passes a typed quick-position preset to the registered Tauri command", async () => {
+    mocks.invoke.mockResolvedValue(undefined);
+
+    await setMainWindowPositionPreset("bottom-right");
+
+    expect(mocks.invoke).toHaveBeenCalledOnce();
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      "set_main_window_position_preset",
+      { preset: "bottom-right" },
+    );
+  });
+});
 
 describe("desktop preferences boundary", () => {
   it("accepts the complete persisted preference projection", () => {

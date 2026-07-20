@@ -19,6 +19,7 @@ import {
   getMainExpanded,
   onMainExpanded,
   onShowMainDetails,
+  setMainWindowPositionPreset,
   showDesktopContextMenu,
   showMainDetails,
   updateCompanionProjection,
@@ -33,6 +34,7 @@ import type {
   DesktopBooleanOption,
   DesktopOpacityPercent,
   DesktopSettingsPending,
+  MainWindowPositionPreset,
 } from "./types/desktop";
 import type { RadarSource } from "./types/radar";
 import "./App.css";
@@ -190,6 +192,13 @@ function App() {
       runSettingsUpdate("radarSource", () => updateDesktopRadarSource(source)),
     [runSettingsUpdate, updateDesktopRadarSource],
   );
+  const setSettingsPositionPreset = useCallback(
+    (preset: MainWindowPositionPreset) =>
+      runSettingsUpdate("positionPreset", () =>
+        setMainWindowPositionPreset(preset),
+      ),
+    [runSettingsUpdate],
+  );
   const openSelectedSource = useCallback(
     () => openSourceSite(desktop.preferences.radarSource),
     [desktop.preferences.radarSource],
@@ -338,6 +347,7 @@ function App() {
           onBack={closeSettings}
           onSetOpacity={setSettingsOpacity}
           onSetOption={setSettingsOption}
+          onSetPositionPreset={setSettingsPositionPreset}
           onSetRadarSource={setSettingsRadarSource}
           pending={settingsPending}
           preferences={desktop.preferences}

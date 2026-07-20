@@ -2,9 +2,10 @@
 
 ## Architecture
 
-Rust continues to own native window lifecycle and persistence. React changes
-only the fixed taskbar typography. No renderer command or desktop preference
-payload is added.
+Rust continues to own native window lifecycle and persistence. React owns the
+fixed taskbar typography plus semantic settings controls. One renderer command
+is added for explicit presets; no coordinate or desktop preference payload is
+added.
 
 ```text
 Moved/Resized/ScaleFactorChanged -> singleton 200ms writer -+
@@ -12,6 +13,7 @@ compact/detail resize -----------> mark geometry dirty -----+--> canonical compa
 quit/close ----------------------> synchronous flush --------+          |
                                                               JSON file
 menu preset -> compute work-area anchor -> set position ------+
+settings preset -> typed Tauri command -> same controller -----+
 
 startup -> load saved position -> select visible work area -> clamp/center
         -> set native position -> apply existing visibility
@@ -124,6 +126,26 @@ last-saved in-memory value. Position JSON uses the project's existing direct
 write policy; a truncated file is treated as invalid and falls back safely on
 the next startup.
 
+## Settings Preset Command
+
+Expose the existing `MainWindowPositionPreset` as a small kebab-case command
+enum (`top-left`, `top-right`, `center`, `bottom-left`, `bottom-right`) and
+register `set_main_window_position_preset`. The command forwards directly to
+`DesktopController::set_main_window_position_preset`; menu dispatch and
+renderer dispatch therefore share monitor selection, oversized rejection,
+movement, compact-equivalent persistence, and rollback behavior.
+
+`src/lib/desktop.ts` owns the typed invoke wrapper. `App` routes it through the
+existing single settings pending transaction with the discriminator
+`positionPreset`. `SettingsView` receives only a semantic
+`onSetPositionPreset` callback and renders five Lucide icon buttons in native
+menu order. The component neither imports Tauri nor derives coordinates.
+
+The controls are icon-only because these are spatial commands. Each button has
+an `aria-label` and `title` (`移到上左`, `移到上右`, `移到中心`, `移到下左`,
+`移到下右`) and uses a fixed five-column track. Settings remains scrollable
+inside `400 x 520`; no section becomes a card.
+
 ## Taskbar Typography
 
 Override only `.taskbar-effort` to `10px` and weight `700`. Keep its `12px`
@@ -136,6 +158,8 @@ truncate rather than resize the companion.
 - Use Tauri 2 public `WindowEvent::Moved`, monitor/work-area, position, and menu
   APIs on Windows and macOS; also handle resized/scale-factor and run lifecycle
   events. Add no plugin or native platform dependency.
+- Treat command enum decoding as the renderer boundary. Unknown preset strings
+  reject before controller mutation; no fallback position is invented.
 - Missing/malformed position JSON means no saved position and retains Tauri's
   configured centered default.
 - A preset whose current native size exceeds the selected work area returns an
@@ -148,6 +172,7 @@ truncate rather than resize the companion.
 
 ## Rollback
 
-Remove the submenu IDs/dispatcher, moved-event routing, position state/file
-helpers, and the `.taskbar-effort` override. The existing preference file and
-renderer contract remain valid because they are not migrated.
+Remove the settings command/controls first for a UI-only rollback. A complete
+rollback also removes the submenu IDs/dispatcher, moved-event routing, position
+state/file helpers, and the `.taskbar-effort` override. The existing preference
+file remains valid because it is not migrated.

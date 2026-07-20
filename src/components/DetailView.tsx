@@ -9,6 +9,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { IconButton } from "./IconButton";
+import { ModelMark } from "./ModelMark";
 import { getModelDisplayName } from "../lib/model";
 import {
   RADAR_STATUS_LABELS,
@@ -175,9 +176,12 @@ export function DetailView({
               <Trophy aria-hidden="true" size={14} />
               {leaderCount > 1 ? `${leaderCount} 个模型并列榜首` : "当前 Model IQ 榜首"}
             </span>
-            <h1 id="leader-title" title={leaderName}>
-              {leaderName}
-            </h1>
+            <div className="leader-model-line">
+              <ModelMark className="model-mark--leader" model={primary?.model} />
+              <h1 id="leader-title" title={leaderName}>
+                {leaderName}
+              </h1>
+            </div>
             <span className="leader-effort" title={primary?.reasoningEffort}>
               {primary?.reasoningEffort || "等待同步"}
             </span>
@@ -235,9 +239,12 @@ export function DetailView({
                     <span className="ranking-position" aria-label={`第 ${getRank(rankings, index)} 名`}>
                       {getRank(rankings, index)}
                     </span>
-                    <span className="ranking-model">
-                      <strong title={displayName}>{displayName}</strong>
-                      <span title={entry.reasoningEffort}>{entry.reasoningEffort}</span>
+                    <span className="ranking-model-cell">
+                      <ModelMark className="model-mark--ranking" model={entry.model} />
+                      <span className="ranking-model">
+                        <strong title={displayName}>{displayName}</strong>
+                        <span title={entry.reasoningEffort}>{entry.reasoningEffort}</span>
+                      </span>
                     </span>
                     <span
                       className="ranking-pass"

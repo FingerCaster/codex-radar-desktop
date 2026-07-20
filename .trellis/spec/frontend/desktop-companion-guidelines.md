@@ -15,6 +15,9 @@ getDesktopPreferences() -> DesktopPreferences
 setDesktopOption(option, enabled) -> DesktopPreferences
 setDesktopOpacity(opacityPercent) -> DesktopPreferences
 setDesktopRadarSource(source) -> DesktopPreferences
+setMainWindowPositionPreset(
+  preset: "top-left" | "top-right" | "center" | "bottom-left" | "bottom-right"
+) -> void
 getMainExpanded() -> boolean
 showMainDetails() -> void
 showDesktopContextMenu() -> void
@@ -22,6 +25,8 @@ updateCompanionProjection(projection) -> void
 onDesktopPreferencesUpdated(handler) -> UnlistenFn
 onMainExpanded(handler) -> UnlistenFn
 onShowMainDetails(handler) -> UnlistenFn
+
+resolveModelMarkKind(model?, displayName?) -> "codex" | "sol" | "terra" | "luna"
 ```
 
 `useRadar({ passive: true, source, activationEpoch, enabled })` is the taskbar
@@ -42,9 +47,14 @@ before radar hydration.
   shrink succeeds; failure leaves settings mounted in coherent expanded
   geometry.
 - `SettingsView` is presentational. It receives the complete accepted
-  `DesktopPreferences`, semantic option/opacity/source callbacks, one pending
-  discriminator, and a bounded error. It never invokes Tauri or optimistically
-  mutates a preference.
+  `DesktopPreferences`, semantic option/opacity/source/position callbacks, one
+  pending discriminator, and a bounded error. It never invokes Tauri,
+  calculates monitor coordinates, or optimistically mutates a preference.
+- Settings renders `快捷位置` as exactly five fixed icon controls in native-menu
+  order: top-left, top-right, center, bottom-left, bottom-right. Every control
+  has a Chinese accessible name and hover title. The callback sends only the
+  shared preset union through `src/lib/desktop.ts`; success keeps settings
+  mounted and does not change `DesktopPreferences`.
 - The taskbar renderer hydrates the Rust snapshot and listens to snapshot and
   failure events, but it does not call refresh, request notification
   permission, listen for refresh requests, or register online recovery.
@@ -72,6 +82,12 @@ before radar hydration.
   stronger `max` label must not change either row or native viewport geometry.
 - Long model, effort, score, tie, and status text must ellipsize inside fixed
   tracks. No taskbar content may resize the native child.
+- Model artwork is bundled locally and decorative (`alt=""`,
+  `aria-hidden="true"`). Exact stable identifiers `gpt-5.6-sol`,
+  `gpt-5.6-terra`, and `gpt-5.6-luna` resolve to the sun, earth, and moon PNGs.
+  GPT-5.5, GPT-5.4, every unknown stable identifier, and every other model use
+  the Codex SVG. Only when a stable identifier is absent may the taskbar
+  display name infer a bounded `GPT-5.6 Sol|Terra|Luna` family token.
 - `positionLocked` removes every app-provided `data-tauri-drag-region`; it does
   not disable operating-system window movement shortcuts or the five native
   quick-position presets.
@@ -98,7 +114,11 @@ before radar hydration.
 | Taskbar starts with no Rust snapshot | Show bounded unavailable/loading projection; do not refresh |
 | Snapshot event is valid | Update projection and cache through the radar reducer |
 | Fixed taskbar projection | Show model/effort/status above IQ/value/ties within 168px |
+| Known Sol/Terra/Luna stable identifier | Resolve its matching local PNG without a network request |
+| GPT-5.5, GPT-5.4, or unknown stable identifier | Resolve the Codex SVG even if display text contains a different family token |
 | Position locked | Render no drag-region attributes |
+| Position locked with an explicit preset | Keep all five preset controls enabled unless another settings command is pending |
+| Position preset succeeds | Keep settings mounted and clear pending state without changing a preference value |
 | Native action rejects | Keep current view/state and expose the existing recovery path |
 | Setting command pending | Disable settings/back controls, suppress duplicate updates, and show one bounded saving status |
 | Setting command rejects | Keep event-owned values selected, clear pending state, and show a bounded alert |
@@ -113,9 +133,13 @@ before radar hydration.
   an intermediate main snapshot or a second polling loop.
 - Good: a tied leader renders `+N` without changing taskbar dimensions and the
   accessible name includes the full tie count.
+- Good: `gpt-5.6-terra` renders the local earth artwork beside its existing
+  accessible model text, while `gpt-5.5-codex-max` renders the Codex mark.
 - Good: start-at-login toggled in settings remains pending until Rust verifies
   the OS registration, then the complete preference event selects the new
   value and the shared native menu check matches it.
+- Good: `移到下右` remains available while drag locking is enabled and routes
+  `bottom-right` to Rust without deriving screen or taskbar coordinates.
 - Base: no snapshot renders `暂无数据`, `--`, and a bounded status label.
 - Bad: a second `useRadar()` active instance would duplicate refresh-request,
   notification, and online side effects even with backend single-flight.
@@ -123,6 +147,10 @@ before radar hydration.
   look detached from the system taskbar and consumes layout pixels.
 - Bad: adding an optional wider mode can cover task buttons or another embedded
   monitor and is not part of the desktop preference contract.
+- Bad: computing preset coordinates from `window.screen` in React can select the
+  wrong monitor work area and bypass native compact-position persistence.
+- Bad: substring matching `sol`, `terra`, or `luna` inside every model string
+  misclassifies names such as `gpt-5.6-solaris` and overrides stable IDs.
 - Bad: sequentially awaiting the expanded listener before starting the details
   listener can strand a visible settings page after a taskbar details click.
 
@@ -135,6 +163,9 @@ before radar hydration.
   hydration, late registration cleanup, same-source epoch stability, and
   main -> distributed -> main epoch accumulation.
 - Projection tests cover primary leader, ties, stale status, and no snapshot.
+- Model-mark tests cover exact Sol/Terra/Luna identifiers, explicit GPT-5.5 and
+  GPT-5.4 fallback, unknown identifiers, bounded display-name fallback, and
+  decorative image semantics in compact/detail/ranking/taskbar projections.
 - Hook runtime tests prove passive mode registers snapshot/failure listeners
   but not refresh-request, notification permission, online recovery, or an
   initial refresh; they also prove disabled hydration reads no cache and a
@@ -145,8 +176,11 @@ before radar hydration.
   late registrations are cleaned up; settings restores compact/detail; and a
   failed shrink keeps settings mounted.
 - Settings component tests assert accessible checkbox/segmented/back controls,
-  exact semantic values, global pending disablement, and bounded errors without
+  exact semantic values, the five ordered position commands, locked-state
+  availability, global pending disablement, and bounded errors without
   optimistic selection.
+- Desktop adapter and App tests assert the exact kebab-case preset payload,
+  shared `positionPreset` pending state, success cleanup, and rejection cleanup.
 - Taskbar component tests assert details click, context-menu callback, effort,
   freshness, tie marker, accessible name, and that the polite status live
   region is outside the primary button.
@@ -196,3 +230,33 @@ const registrations = await Promise.allSettled([
 
 Start both listener registrations before awaiting either one, then retain and
 clean up each fulfilled unlistener independently before reading initial state.
+
+Wrong:
+
+```tsx
+onClick={() => invoke("set_main_window_position", getScreenCoordinates())}
+```
+
+Correct:
+
+```tsx
+onClick={() => onSetPositionPreset("bottom-right")}
+```
+
+`SettingsView` emits a semantic action; the typed desktop adapter and Rust
+controller own IPC, monitor geometry, rollback, and persistence.
+
+Wrong:
+
+```typescript
+if (model.includes("sol")) return solLogo;
+```
+
+Correct:
+
+```typescript
+return MODEL_MARK_BY_IDENTIFIER[model.trim().toLowerCase()] ?? "codex";
+```
+
+Stable model identifiers take priority. A tightly bounded display-name fallback
+exists only for the taskbar projection when no identifier is available.

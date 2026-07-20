@@ -37,6 +37,9 @@ get_main_expanded() -> boolean
 set_desktop_option(option, enabled) -> DesktopPreferences
 set_desktop_opacity(opacityPercent) -> DesktopPreferences
 set_desktop_radar_source(source) -> DesktopPreferences
+set_main_window_position_preset(
+  preset: "top-left" | "top-right" | "center" | "bottom-left" | "bottom-right"
+) -> ()
 set_window_expanded(expanded) -> ()
 show_main_details() -> DesktopPreferences
 show_desktop_context_menu() -> ()
@@ -133,6 +136,11 @@ desktop.radar-source.distributed -> 分布式
   preserve `showMainWindow`, bypass drag locking, and persist only after native
   movement succeeds. Persistence failure rolls the native position back
   best-effort and does not advance the in-memory last-saved value.
+- Renderer quick-position requests decode through the same kebab-case
+  `MainWindowPositionPreset` enum and call the same controller transaction as
+  native menu items. The renderer sends only the preset name: it never sends
+  coordinates, changes `DesktopPreferences`, or creates another persistence
+  path. `positionLocked` blocks drag regions, not these explicit commands.
 - macOS uses the native tray/status-item title and does not create a second
   companion WebView. Left-click opens details; right-click uses the shared
   native menu. Hiding the projection calls `set_title(Some(""))`: with the
@@ -213,6 +221,7 @@ desktop.radar-source.distributed -> 分布式
 | Preference JSON is absent or invalid | Load normalized defaults |
 | Position JSON is absent, malformed, or fully off screen | Keep the configured center or recover into an available work area; never panic |
 | Saved position belongs to a differently scaled monitor | Use that monitor's compact physical size when intersecting and clamping |
+| Renderer sends an unknown or non-kebab-case preset | Reject during command deserialization before controller or window mutation |
 | Preset window is larger than the current work area | Reject without moving or writing the saved position |
 | Preset move succeeds but position persistence fails | Roll back native position best-effort; retain the previous in-memory saved value |
 | Writer fails while a newer geometry revision arrives | Keep the singleton writer active and retry after the debounce delay |
@@ -232,6 +241,9 @@ desktop.radar-source.distributed -> 分布式
   168` compact footprint and clamps its right/bottom edges to that display.
 - Good: selecting `快捷设置位置 > 下右` while position locking is enabled moves
   the current native window without changing its hidden/visible state.
+- Good: selecting `移到中心` in settings while position locking is enabled
+  invokes `center`, keeps settings mounted, and persists through the same native
+  transaction as the menu command.
 - Good: selecting `雷达数据源 > 分布式` while only the Windows taskbar projection
   is visible commits `distributed`, wakes polling, and refreshes without showing
   or moving the main window.
@@ -271,6 +283,8 @@ desktop.radar-source.distributed -> 分布式
 - Position tests assert all five exact preset coordinates, oversized rejection,
   compact-equivalent expanded capture, malformed/negative JSON, partial and
   disconnected-display recovery, and per-monitor mixed-DPI clamping.
+- Command-boundary tests assert the five kebab-case preset values decode and
+  unknown or camel-case values reject before native mutation.
 - Writer state tests assert a single ready writer and that a failed attempt
   retries exactly when a newer revision arrived. Code review must also verify
   that off-main-thread Wry getters occur before `main_position_gate` and that
@@ -360,6 +374,25 @@ if self.lock_main_position_state()?.revision != revision {
 Capture without the gate, then serialize and revision-check the write. Native
 resize transactions use `run_on_main_thread` so their getter/setter sequence is
 executed by the event loop itself.
+
+Wrong:
+
+```typescript
+invoke("set_main_window_position", { x: screen.availLeft, y: screen.availTop });
+```
+
+This makes renderer monitor data and coordinates a second, DPI-sensitive source
+of truth.
+
+Correct:
+
+```typescript
+invoke("set_main_window_position_preset", { preset: "top-left" });
+```
+
+Send one semantic preset and let the existing Rust transaction select the
+monitor work area, move the native window, and persist the canonical compact
+position.
 
 Wrong:
 

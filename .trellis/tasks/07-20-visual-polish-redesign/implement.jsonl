@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Preserve compact/detail/settings component, action, drag-region, and accessibility contracts."}
+{"file":".trellis/spec/frontend/desktop-companion-guidelines.md","reason":"Preserve fixed main/taskbar renderer geometry and desktop interaction boundaries."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Apply fixed-size CSS, high-DPI, accessibility, and validation requirements."}
+{"file":".trellis/tasks/07-20-visual-polish-redesign/research.md","reason":"Carry the Antigravity visual findings and CSS-only implementation boundary into execution."}

@@ -65,8 +65,9 @@ enum TrayLeftClickBehavior {
     ShowDetails,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MainWindowPositionPreset {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MainWindowPositionPreset {
     TopLeft,
     TopRight,
     Center,
@@ -1468,6 +1469,16 @@ pub async fn set_desktop_radar_source(
 }
 
 #[tauri::command]
+pub fn set_main_window_position_preset(
+    app: AppHandle,
+    state: State<'_, DesktopController>,
+    preset: MainWindowPositionPreset,
+) -> Result<(), String> {
+    ensure_supported_platform()?;
+    state.set_main_window_position_preset(&app, preset)
+}
+
+#[tauri::command]
 pub fn update_companion_projection(
     app: AppHandle,
     state: State<'_, DesktopController>,
@@ -2134,6 +2145,34 @@ mod tests {
         assert_eq!(
             MainWindowPositionPreset::from_menu_id("desktop.position.unknown"),
             None
+        );
+    }
+
+    #[test]
+    fn quick_position_command_presets_decode_kebab_case() {
+        let cases = [
+            ("top-left", MainWindowPositionPreset::TopLeft),
+            ("top-right", MainWindowPositionPreset::TopRight),
+            ("center", MainWindowPositionPreset::Center),
+            ("bottom-left", MainWindowPositionPreset::BottomLeft),
+            ("bottom-right", MainWindowPositionPreset::BottomRight),
+        ];
+
+        for (wire_value, expected) in cases {
+            assert_eq!(
+                serde_json::from_value::<MainWindowPositionPreset>(serde_json::json!(wire_value))
+                    .expect("valid preset wire value"),
+                expected
+            );
+        }
+
+        assert!(
+            serde_json::from_value::<MainWindowPositionPreset>(serde_json::json!("topLeft"))
+                .is_err()
+        );
+        assert!(
+            serde_json::from_value::<MainWindowPositionPreset>(serde_json::json!("unknown"))
+                .is_err()
         );
     }
 

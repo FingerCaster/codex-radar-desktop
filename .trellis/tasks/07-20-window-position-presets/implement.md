@@ -21,6 +21,21 @@
   from final source. Native Windows/macOS verification remains assigned to the
   user.
 
+## Settings Follow-up
+
+- [x] Add a kebab-case preset command enum and register
+  `set_main_window_position_preset`, forwarding to the existing controller
+  transaction without duplicating geometry logic.
+- [x] Add the shared TypeScript preset union and `src/lib/desktop.ts` invoke
+  wrapper, then route it through `App`'s existing single pending/error flow.
+- [x] Add a `快捷位置` settings section with five fixed Lucide icon controls in
+  native-menu order, including title/accessible labels and global disabled
+  state while any settings command is pending.
+- [x] Add Rust enum decoding, frontend boundary, SettingsView action, App
+  failure/pending, and position-locked regressions.
+- [x] Run frontend lint/typecheck/test/build and Rust fmt/check/test/clippy,
+  then inspect the expanded settings window at Windows 150% DPI.
+
 ## Validation Commands
 
 ```powershell
@@ -71,9 +86,13 @@ pnpm tauri build
   warnings: passed.
 - `pnpm exec tauri info`: Tauri 2.11.5 / Wry 0.55.1 on Windows x64.
 - `pnpm tauri build`: passed; final Windows artifacts:
-  - MSI: `4,947,968` bytes, SHA256
-    `B4ADD11F6E5AEFB8751C2E3DB113FFCD74DEC1B5E51AF41FEB6DEBE88FFC9117`
-  - NSIS: `3,473,914` bytes, SHA256
-    `901286C03779507DFA71D5C0784FD92550B1048CB7EF34894C8EC7ABBF25B8EE`
-- Native position restore, menu interaction, and macOS behavior: pending user
-  verification.
+  - MSI: `5,730,304` bytes, SHA256
+    `026EB33DDE202EDAA1E6B3CBE9B1E0187BE2D49FA7BED85332F951BA75BCE0B8`
+  - NSIS: `4,225,046` bytes, SHA256
+    `0A1DFA21226704C906D1588FCC128AFCAE9023D811EE5B6FE79CFA75F7037B8A`
+- Native Windows position restore and menu/settings interaction passed at 150%
+  DPI. Native macOS behavior remains pending platform verification.
+- Settings follow-up: frontend lint/typecheck/build and 82 tests passed; Rust
+  fmt/check/clippy and 74 tests passed. At Windows 150% DPI, all five controls
+  rendered without overlap and native `中心` / `下右` clicks moved the window
+  successfully while position locking was enabled.

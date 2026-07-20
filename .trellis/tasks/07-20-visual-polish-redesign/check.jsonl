@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Verify semantic actions, accessible controls, and drag-region behavior remain unchanged."}
+{"file":".trellis/spec/frontend/desktop-companion-guidelines.md","reason":"Verify all native fixed-size projections and taskbar interactions remain bounded."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run the required frontend gates and native high-DPI visual review."}
+{"file":".trellis/tasks/07-20-visual-polish-redesign/research.md","reason":"Check the prototype against the agreed instrument-panel direction and rejected card-heavy alternative."}

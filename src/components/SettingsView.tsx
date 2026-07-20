@@ -1,9 +1,19 @@
-import { ArrowLeft, Settings2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Crosshair,
+  MoveDownLeft,
+  MoveDownRight,
+  MoveUpLeft,
+  MoveUpRight,
+  Settings2,
+  type LucideIcon,
+} from "lucide-react";
 
 import { IconButton } from "./IconButton";
 import {
   DESKTOP_OPACITY_VALUES,
   type DesktopBooleanOption,
+  type MainWindowPositionPreset,
   type SettingsViewProps,
 } from "../types/desktop";
 import type { RadarSource } from "../types/radar";
@@ -39,6 +49,18 @@ const RADAR_SOURCES: ReadonlyArray<{ value: RadarSource; label: string }> = [
   { value: "distributed", label: "分布式" },
 ];
 
+const POSITION_PRESETS: ReadonlyArray<{
+  value: MainWindowPositionPreset;
+  label: string;
+  icon: LucideIcon;
+}> = [
+  { value: "top-left", label: "移到上左", icon: MoveUpLeft },
+  { value: "top-right", label: "移到上右", icon: MoveUpRight },
+  { value: "center", label: "移到中心", icon: Crosshair },
+  { value: "bottom-left", label: "移到下左", icon: MoveDownLeft },
+  { value: "bottom-right", label: "移到下右", icon: MoveDownRight },
+];
+
 export function SettingsView({
   preferences,
   pending,
@@ -47,6 +69,7 @@ export function SettingsView({
   onSetOption,
   onSetOpacity,
   onSetRadarSource,
+  onSetPositionPreset,
 }: SettingsViewProps) {
   const disabled = pending !== null;
   const dragRegion = preferences.positionLocked ? undefined : true;
@@ -115,6 +138,27 @@ export function SettingsView({
               </label>
             );
           })}
+        </section>
+
+        <section className="settings-section" aria-labelledby="settings-position-title">
+          <div className="settings-section-heading">
+            <h2 id="settings-position-title">快捷位置</h2>
+          </div>
+          <div
+            aria-label="快捷位置"
+            className="settings-position-presets"
+            role="group"
+          >
+            {POSITION_PRESETS.map((preset) => (
+              <IconButton
+                disabled={disabled}
+                icon={preset.icon}
+                key={preset.value}
+                label={preset.label}
+                onClick={() => onSetPositionPreset(preset.value)}
+              />
+            ))}
+          </div>
         </section>
 
         <section className="settings-section" aria-labelledby="settings-opacity-title">

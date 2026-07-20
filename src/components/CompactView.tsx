@@ -7,6 +7,7 @@ import {
   Settings,
 } from "lucide-react";
 import { IconButton } from "./IconButton";
+import { ModelMark } from "./ModelMark";
 import { getModelDisplayName } from "../lib/model";
 import {
   RADAR_STATUS_LABELS,
@@ -128,6 +129,7 @@ export function CompactView({
             {message}
           </span>
           <span className="compact-model-line">
+            <ModelMark className="model-mark--compact" model={primary?.model} />
             <strong className="compact-model" title={leaderName}>
               {leaderName}
             </strong>

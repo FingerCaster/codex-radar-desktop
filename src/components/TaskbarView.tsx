@@ -1,6 +1,7 @@
 import type { MouseEvent } from "react";
 
 import type { DesktopAction, TaskbarViewProps } from "../types/desktop";
+import { ModelMark } from "./ModelMark";
 
 function runAction(action: DesktopAction) {
   try {
@@ -46,6 +47,10 @@ export function TaskbarView({
         type="button"
       >
         <span className="taskbar-primary-row">
+          <ModelMark
+            className="model-mark--taskbar"
+            displayName={modelName}
+          />
           <strong className="taskbar-model" title={modelName}>
             {modelName}
           </strong>

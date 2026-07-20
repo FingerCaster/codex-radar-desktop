@@ -10,6 +10,7 @@ import {
   type DesktopBooleanOption,
   type DesktopOpacityPercent,
   type DesktopPreferences,
+  type MainWindowPositionPreset,
 } from "../types/desktop";
 import {
   RADAR_STATUS_LABELS,
@@ -96,6 +97,12 @@ export async function setDesktopRadarSource(
   return requireDesktopPreferences(
     await invoke<unknown>("set_desktop_radar_source", { source }),
   );
+}
+
+export async function setMainWindowPositionPreset(
+  preset: MainWindowPositionPreset,
+): Promise<void> {
+  await invoke("set_main_window_position_preset", { preset });
 }
 
 export async function showMainDetails(): Promise<void> {

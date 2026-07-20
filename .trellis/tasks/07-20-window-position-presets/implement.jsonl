@@ -2,4 +2,6 @@
 {"file":".trellis/spec/backend/quality-guidelines.md","reason":"Required Rust verification and geometry/persistence test conventions."}
 {"file":".trellis/spec/frontend/desktop-companion-guidelines.md","reason":"Fixed 168x30 renderer and bounded taskbar typography constraints."}
 {"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend checks, fixed CSS tracks, DPI, and accessibility requirements."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"SettingsView stays presentational and icon-only commands keep semantic action, tooltip, and focus contracts."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Keep preset wire values typed while native coordinates and persistence remain Rust-owned."}
 {"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse the existing anchor and JSON persistence patterns instead of duplicating them."}

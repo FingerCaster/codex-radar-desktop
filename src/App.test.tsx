@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   detailsUnlisten: vi.fn(),
   setOption: vi.fn(),
   setOpacity: vi.fn(),
+  setPositionPreset: vi.fn(),
   setRadarSource: vi.fn(),
   setWindowExpanded: vi.fn(async () => undefined),
   unlisten: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock("./lib/desktop", async (importOriginal) => {
     getMainExpanded: mocks.getMainExpanded,
     onMainExpanded: mocks.onMainExpanded,
     onShowMainDetails: mocks.onShowMainDetails,
+    setMainWindowPositionPreset: mocks.setPositionPreset,
     updateCompanionProjection: mocks.updateCompanionProjection,
   };
 });
@@ -55,6 +57,7 @@ describe("App main expanded-state hydration", () => {
     mocks.setWindowExpanded.mockResolvedValue(undefined);
     mocks.setOption.mockResolvedValue({ ...DEFAULT_DESKTOP_PREFERENCES });
     mocks.setOpacity.mockResolvedValue({ ...DEFAULT_DESKTOP_PREFERENCES });
+    mocks.setPositionPreset.mockResolvedValue(undefined);
     mocks.setRadarSource.mockResolvedValue({ ...DEFAULT_DESKTOP_PREFERENCES });
     mocks.useDesktopPreferences.mockReturnValue({
       preferences: { ...DEFAULT_DESKTOP_PREFERENCES },
@@ -223,6 +226,32 @@ describe("App main expanded-state hydration", () => {
       (screen.getByRole("checkbox", { name: /开机自启/ }) as HTMLInputElement)
         .checked,
     ).toBe(false);
+  });
+
+  it("routes quick positions through the shared pending and failure transaction", async () => {
+    const update = createDeferred<void>();
+    mocks.setPositionPreset.mockReturnValue(update.promise);
+    render(<App />);
+    await waitFor(() => expect(mocks.getMainExpanded).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
+    await screen.findByLabelText("Codex Radar 设置");
+
+    const bottomRight = screen.getByRole("button", { name: "移到下右" });
+    fireEvent.click(bottomRight);
+    await screen.findByText("正在保存设置");
+    expect(mocks.setPositionPreset).toHaveBeenCalledOnce();
+    expect(mocks.setPositionPreset).toHaveBeenCalledWith("bottom-right");
+    expect((bottomRight as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      update.reject(new Error("native positioning failed"));
+      await update.promise.catch(() => undefined);
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "设置保存失败，请重试",
+    );
+    expect((bottomRight as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("keeps compact mounted when settings expansion fails", async () => {

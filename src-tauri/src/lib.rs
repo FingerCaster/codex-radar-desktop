@@ -59,6 +59,7 @@ pub fn run() {
             desktop::set_desktop_option,
             desktop::set_desktop_opacity,
             desktop::set_desktop_radar_source,
+            desktop::set_main_window_position_preset,
             desktop::update_companion_projection,
             desktop::set_window_expanded,
             desktop::hide_window,

@@ -13,6 +13,13 @@ export type DesktopBooleanOption =
   | "showMainWindow"
   | "launchAtLogin";
 
+export type MainWindowPositionPreset =
+  | "top-left"
+  | "top-right"
+  | "center"
+  | "bottom-left"
+  | "bottom-right";
+
 export interface DesktopPreferences {
   alwaysOnTop: boolean;
   clickThrough: boolean;
@@ -48,7 +55,8 @@ export type DesktopAction = () => void | Promise<void>;
 export type DesktopSettingsPending =
   | DesktopBooleanOption
   | "radarSource"
-  | "opacityPercent";
+  | "opacityPercent"
+  | "positionPreset";
 
 export interface SettingsViewProps {
   preferences: DesktopPreferences;
@@ -61,6 +69,9 @@ export interface SettingsViewProps {
   ) => void | Promise<void>;
   onSetOpacity: (opacity: DesktopOpacityPercent) => void | Promise<void>;
   onSetRadarSource: (source: RadarSource) => void | Promise<void>;
+  onSetPositionPreset: (
+    preset: MainWindowPositionPreset,
+  ) => void | Promise<void>;
 }
 
 export interface TaskbarViewProps {

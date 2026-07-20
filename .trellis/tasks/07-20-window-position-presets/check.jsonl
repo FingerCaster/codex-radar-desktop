@@ -1,5 +1,6 @@
 {"file":".trellis/spec/backend/desktop-companion-contract.md","reason":"Check saved-position behavior, menu routing, and taskbar regression safety."}
 {"file":".trellis/spec/backend/quality-guidelines.md","reason":"Run full Rust gates and focused persistence/geometry assertions."}
+{"file":".trellis/spec/frontend/desktop-companion-guidelines.md","reason":"Verify settings pending/error routing and the renderer-to-native preset boundary."}
 {"file":".trellis/spec/frontend/component-guidelines.md","reason":"Check TaskbarView semantics remain unchanged while effort styling changes."}
 {"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Check the fixed taskbar viewport, ellipsis, DPI behavior, and frontend gates."}
 {"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Verify native-only coordinates do not leak into renderer desktop payloads."}

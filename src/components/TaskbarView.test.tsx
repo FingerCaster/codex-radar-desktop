@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import solLogo from "../assets/sol-transparent.png";
 import type { CompanionProjection } from "../types/desktop";
 import { TaskbarView } from "./TaskbarView";
 
@@ -30,6 +31,11 @@ describe("TaskbarView", () => {
     expect(screen.getByText("106.3")).toBeTruthy();
     expect(container.querySelector(".taskbar-primary-row")).toBeTruthy();
     expect(container.querySelector(".taskbar-score-row")).toBeTruthy();
+    const mark = container.querySelector("img.model-mark--taskbar");
+    expect(mark?.getAttribute("alt")).toBe("");
+    expect(mark?.getAttribute("aria-hidden")).toBe("true");
+    expect(mark?.getAttribute("src")).toBe(solLogo);
+    expect(screen.queryByRole("img")).toBeNull();
     const button = screen.getByRole("button", {
       name: /GPT-5\.6 Sol.*effort max.*同步状态 已同步.*IQ 106\.3/,
     });
