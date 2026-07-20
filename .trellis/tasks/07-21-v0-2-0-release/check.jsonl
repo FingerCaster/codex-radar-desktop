@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify all renderer checks pass without altered configuration before packaging."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Verify the native release build passes all Rust quality and platform checks."}

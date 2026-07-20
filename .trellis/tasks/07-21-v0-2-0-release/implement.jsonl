@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Defines the canonical frontend lint, typecheck, test, and production-build release gate."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Defines the canonical Rust fmt, check, test, and denied-warning clippy gate."}
