@@ -132,3 +132,36 @@ presets shared by the tray, Windows taskbar context menu, and macOS status item.
 - Verify drag/restart restore, expanded-window restore, all five preset menu
   actions, locked presets, and hidden-window positioning on Windows.
 - Build and verify the same native menu and restore behavior on macOS.
+
+
+## Session 2: Desktop settings and start-at-login
+
+**Date**: 2026-07-20
+**Task**: Desktop settings and start-at-login
+**Branch**: `main`
+
+### Summary
+
+Added in-place desktop settings, shared tray/taskbar menu start-at-login control, verified Windows autostart registration round trip, synchronized specs, and preserved native menu/macOS visual checks as residual platform validation.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a86d658` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
