@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
+- **Total Sessions**: 4
 - **Last Active**: 2026-07-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~200 | Active |
+| `journal-1.md` | ~234 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-07-21 | Publish Codex Radar Desktop v0.2.0 | `3120480`, `510f4ec` | `main` |
 | 3 | 2026-07-21 | Desktop visual polish and quick positions | `b57501b` | `main` |
 | 2 | 2026-07-20 | Desktop settings and start-at-login | `a86d658` | `main` |
 | 1 | 2026-07-20 | Taskbar companion implementation | - | `-` |

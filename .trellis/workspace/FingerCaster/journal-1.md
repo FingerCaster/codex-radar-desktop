@@ -198,3 +198,37 @@ Refined all desktop projections, bundled Sol/Terra/Luna and Codex model marks, a
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Publish Codex Radar Desktop v0.2.0
+
+**Date**: 2026-07-21
+**Task**: Publish Codex Radar Desktop v0.2.0
+**Branch**: `main`
+
+### Summary
+
+Synchronized application metadata to 0.2.0, passed the complete frontend and Rust release gates, built and checksummed Windows MSI/NSIS installers, pushed main and annotated v0.2.0, and published a verified latest GitHub Release with three assets.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3120480` | (see git log) |
+| `510f4ec` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
