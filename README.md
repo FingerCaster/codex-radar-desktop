@@ -2,6 +2,14 @@
 
 Model Radar 是一个基于 Tauri 2、React 和 TypeScript 的 Windows/macOS 桌面小组件。它可在 Codex Radar 主站公开摘要与分布式实时榜单之间切换，在紧凑置顶窗口中显示所选来源当前 Model IQ 最高的模型，并可展开查看排名与数据详情。
 
+## 界面预览
+
+![菜单栏状态项](docs/images/menu-bar-status.png)
+
+![详情窗口](docs/images/detail-window.png)
+
+![右键控制菜单](docs/images/control-menu.png)
+
 - Windows：在主任务栏通知区域左侧嵌入榜首模型与 IQ；点击打开详情，右键显示共享控制菜单。
 - macOS：使用原生菜单栏状态项标题显示榜首模型与 IQ；点击打开详情，右键显示共享控制菜单。
 - 主窗口会保存最后位置并在下次启动时恢复；显示器布局变化后会自动夹取到可见工作区。
@@ -12,6 +20,14 @@ Model Radar 是一个基于 Tauri 2、React 和 TypeScript 的 Windows/macOS 桌
 Windows 运行期间每秒重新计算一次任务栏空位。TrafficMonitor 等第三方任务栏窗口出现或移动后，组件会自动避让；没有完整空位时会关闭任务栏投影并恢复主窗口，可从右键菜单再次尝试开启。
 
 首个版本不支持 Linux。Windows 当前只适配主显示器上的 Windows 11 任务栏；经典任务栏、副屏任务栏及 Explorer 重启后自动重建暂未支持。
+
+## 使用说明
+
+1. 从 [GitHub Releases](https://github.com/FingerCaster/codex-radar-desktop/releases) 下载当前平台安装包。macOS 用户选择 `Model.Radar_0.2.0_universal.dmg`，它同时支持 Apple Silicon（M 系列）和 Intel。
+2. 启动后，macOS 会在菜单栏显示当前榜首模型与 IQ；Windows 会在主任务栏通知区域左侧显示同样的信息。
+3. 点击菜单栏/任务栏小组件打开详情窗口，查看当前榜首、通过任务数、平均成本、平均耗时和前 5 名排行。
+4. 右键小组件打开控制菜单，可切换数据源、立即刷新、调整窗口透明度、设置常用位置、显示或隐藏详情窗口。
+5. 如果希望窗口固定在某个位置，先通过“快捷设置位置”放到目标区域，再启用“锁定窗口位置”。
 
 ## 本地开发
 
