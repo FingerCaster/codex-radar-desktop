@@ -165,3 +165,36 @@ Added in-place desktop settings, shared tray/taskbar menu start-at-login control
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Desktop visual polish and quick positions
+
+**Date**: 2026-07-21
+**Task**: Desktop visual polish and quick positions
+**Branch**: `main`
+
+### Summary
+
+Refined all desktop projections, bundled Sol/Terra/Luna and Codex model marks, added five settings quick-position controls through the shared native transaction, verified Windows 150% DPI behavior, and rebuilt MSI/NSIS installers.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b57501b` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
