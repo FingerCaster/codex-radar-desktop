@@ -1,0 +1,75 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Model Radar",
+  "version": "0.1.0",
+  "identifier": "com.fingercaster.modelradar",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1422",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Model Radar",
+        "width": 360,
+        "height": 112,
+        "minWidth": 360,
+        "minHeight": 112,
+        "maxWidth": 400,
+        "maxHeight": 520,
+        "center": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": false
+      },
+      {
+        "label": "taskbar",
+        "title": "Model Radar Companion",
+        "create": false,
+        "width": 168,
+        "height": 30,
+        "minWidth": 168,
+        "minHeight": 30,
+        "maxWidth": 168,
+        "maxHeight": 30,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": true,
+        "shadow": false,
+        "focus": false,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data:; style-src 'self'; font-src 'self'; script-src 'self'",
+      "devCsp": "default-src 'self' http://localhost:1422; connect-src ipc: http://ipc.localhost http://localhost:1422 ws://localhost:1422 ws://localhost:1423; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline' http://localhost:1422; font-src 'self'; script-src 'self' http://localhost:1422"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

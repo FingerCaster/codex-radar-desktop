@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/desktop-companion-contract.md","reason":"Native menu, window geometry, persistence, and lifecycle ownership contracts."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Required Rust verification and geometry/persistence test conventions."}
+{"file":".trellis/spec/frontend/desktop-companion-guidelines.md","reason":"Fixed 168x30 renderer and bounded taskbar typography constraints."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend checks, fixed CSS tracks, DPI, and accessibility requirements."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse the existing anchor and JSON persistence patterns instead of duplicating them."}

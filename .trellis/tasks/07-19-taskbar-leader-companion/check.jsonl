@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Run all Rust checks and verify target-specific desktop behavior remains isolated."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Review rollback, recovery, persistence, and menu/state consistency on native failures."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Review all new command/event payloads and runtime guards across the renderer boundary."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run frontend checks and review fixed layout, opacity, accessibility, and high-DPI behavior."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace each setting from native menu through controller, event, renderer, and visible behavior."}
+{"file":".trellis/tasks/07-19-taskbar-leader-companion/research/windows-taskbar-reference.md","reason":"Check Windows behavior against the evidence without importing licensed implementation text."}
+{"file":".trellis/tasks/07-19-taskbar-leader-companion/research/macos-menu-bar-reference.md","reason":"Check the macOS status-item design and all-rights-reserved boundary."}

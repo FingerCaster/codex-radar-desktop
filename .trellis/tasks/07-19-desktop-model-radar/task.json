@@ -1,0 +1,30 @@
+{
+  "id": "desktop-model-radar",
+  "name": "desktop-model-radar",
+  "title": "Desktop model radar MVP",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "FingerCaster",
+  "assignee": "FingerCaster",
+  "createdAt": "2026-07-19",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-19-taskbar-leader-companion",
+    "07-20-window-position-presets",
+    "07-20-distributed-radar-source-switch"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

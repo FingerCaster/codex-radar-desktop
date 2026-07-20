@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimum desktop permissions for the Model Radar window",
+  "windows": ["main", "taskbar"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-start-dragging",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://codexradar.com"
+        },
+        {
+          "url": "https://deng.codexradar.com"
+        }
+      ]
+    }
+  ]
+}

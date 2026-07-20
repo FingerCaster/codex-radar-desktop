@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/radar-data-contract.md","reason":"Audit both upstream adapters, per-source validators, stale checks, and notification behavior."}
+{"file":".trellis/spec/backend/desktop-companion-contract.md","reason":"Audit exclusive native menu checks, persistence migration, and unchanged window behavior."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Run and assess the complete Rust quality gate and high-risk race tests."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Audit source transitions and rejection of late cross-source successes and failures."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run frontend gates and check both fixed-size renderer projections remain stable."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Audit source-tagged runtime guards and legacy cache migration."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Verify source identity and selection flow end to end across every boundary."}

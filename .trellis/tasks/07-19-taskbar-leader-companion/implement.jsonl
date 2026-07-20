@@ -1,0 +1,11 @@
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Keep native taskbar, tray, persistence, and window lifecycle inside the desktop backend boundary."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Native transition failures must not commit misleading menu or renderer state."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Apply the Rust and cross-layer quality gates to new commands, events, and Windows-only code."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Place the second projection, desktop adapter, hook, and types in existing ownership layers."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Validate desktop preferences and projection events at the Tauri renderer boundary."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Keep taskbar rendering presentational, bounded, accessible, and action-driven."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Follow the established late-listener cleanup and hydration patterns."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Preserve fixed logical dimensions, strict TypeScript, focused tests, and high-DPI checks."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"The feature spans native host state, IPC/events, two render projections, and persistence."}
+{"file":".trellis/tasks/07-19-taskbar-leader-companion/research/windows-taskbar-reference.md","reason":"Use the independently documented Win32 taskbar mechanism and licensing boundary."}
+{"file":".trellis/tasks/07-19-taskbar-leader-companion/research/macos-menu-bar-reference.md","reason":"Use the independently documented NSStatusItem behavior and Tauri tray-title adaptation."}

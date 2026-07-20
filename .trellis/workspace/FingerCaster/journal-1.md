@@ -1,0 +1,134 @@
+# Journal - FingerCaster (Part 1)
+
+> AI development session journal
+> Started: 2026-07-19
+
+---
+
+
+
+## Session 1: Taskbar companion implementation
+
+**Date**: 2026-07-20
+**Task**: Taskbar companion implementation
+
+### Summary
+
+Implemented Windows taskbar and macOS menu-bar leader projections, native checked controls, WebView-DPI geometry, reversible window resizing, passive renderer behavior, tests, specs, and final Windows bundles. Native visual and interaction verification remains assigned to the user; macOS still requires a native build.
+
+### Main Changes
+
+- Added the Windows taskbar child and macOS status-item projection.
+- Added checked native controls, validated preferences, and passive taskbar data flow.
+- Fixed WebView DPI cropping and reversible compact/detail window placement.
+- Rebuilt Windows MSI/NSIS artifacts and documented platform limits.
+
+### Git Commits
+
+(No commits - the workspace root is not a Git repository.)
+
+### Testing
+
+- Frontend lint, typecheck, 24 tests, and production build passed.
+- Rust fmt, check, clippy with denied warnings, and 28 tests passed.
+- Windows MSI and NSIS bundle generation passed.
+- Native visual/interaction verification was delegated to the user.
+
+### Status
+
+[IN PROGRESS] **Implementation complete; native verification pending**
+
+### Next Steps
+
+- Verify Windows taskbar pixels, context menu, click-through recovery, and locked resize round trip.
+- Build and verify the menu-bar behavior on a native macOS machine.
+
+---
+
+## Session 2: Compact taskbar layout and runtime collision recovery
+
+**Date**: 2026-07-20
+**Task**: Taskbar companion follow-up
+
+### Summary
+
+Removed the wider information mode, fixed the companion at 168 x 30 with the
+requested two-row model/effort/status and IQ/value/ties layout, and made Windows
+placement react to taskbar children that appear after startup. A no-space or
+dead-host condition now disables the companion and restores the main/tray path
+instead of retaining an overlapping rectangle.
+
+### Main Changes
+
+- Removed the former wider-information option from the menu, preferences,
+  renderer state, and docs; retained only the old-JSON migration regression.
+- Added blocker-aware one-second Windows reflow, idempotent native positioning,
+  serialized state handling, and non-rollback safety demotion.
+- Moved the taskbar live status outside button semantics for reliable screen
+  reader announcements.
+- Rebuilt the final Windows MSI and NSIS bundles from the updated source.
+
+### Git Commits
+
+(No commits - the workspace root is not a Git repository.)
+
+### Testing
+
+- Frontend lint, typecheck, 25 tests, and production build passed.
+- Rust fmt, all-target check, clippy with denied warnings, and 38 tests passed.
+- Windows MSI and NSIS bundle generation passed.
+- Native visual/interaction verification remains assigned to the user.
+
+### Status
+
+[IN PROGRESS] **Automated implementation complete; native verification pending**
+
+### Next Steps
+
+- Verify both launch orders with TrafficMonitor and the one-second runtime move.
+- Verify the fixed two-row projection and locked compact/detail position round trip.
+- Build and verify the menu-bar behavior on a native macOS machine.
+
+---
+
+## Session 3: Window position persistence and quick presets
+
+**Date**: 2026-07-20
+**Task**: Window position persistence and presets
+
+### Summary
+
+Increased the fixed taskbar effort label to 10px/700, added private main-window
+position persistence and startup recovery, and added five native quick-position
+presets shared by the tray, Windows taskbar context menu, and macOS status item.
+
+### Main Changes
+
+- Saved compact-equivalent main-window coordinates and restored them before the
+  first show, including disconnected and mixed-DPI monitor recovery.
+- Added `快捷设置位置 > 上左 / 上右 / 中心 / 下左 / 下右` without changing
+  visibility or being blocked by drag locking.
+- Fixed a Wry event-loop / geometry-gate ABBA deadlock and writer-error lost
+  wakeup; recorded the runtime thread-affinity contract in backend specs.
+- Rebuilt final Windows MSI and NSIS bundles.
+
+### Git Commits
+
+(No commits - the workspace root is intentionally not a Git repository.)
+
+### Testing
+
+- Frontend lint, typecheck, 25 tests, and production build passed.
+- Rust fmt, all-target check, clippy with denied warnings, and 47 tests passed.
+- Windows MSI and NSIS bundle generation passed.
+- Native visual/interaction verification remains assigned to the user.
+
+### Status
+
+[IN PROGRESS] **Automated implementation complete; native verification pending**
+
+### Next Steps
+
+- Verify drag/restart restore, expanded-window restore, all five preset menu
+  actions, locked presets, and hidden-window positioning on Windows.
+- Build and verify the same native menu and restore behavior on macOS.

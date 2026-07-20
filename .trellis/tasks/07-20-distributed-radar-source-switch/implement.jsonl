@@ -1,0 +1,9 @@
+{"file":".trellis/spec/backend/radar-data-contract.md","reason":"Primary source parsing, normalized snapshot, polling, cache, and notification contracts."}
+{"file":".trellis/spec/backend/desktop-companion-contract.md","reason":"Native menu ownership, persisted desktop settings, renderer visibility, and platform constraints."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Last-known-good preservation and stable source-specific failure taxonomy."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Rust parser, service-state, and persistence verification requirements."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Reducer ownership and stale asynchronous response guards during source transitions."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Listener lifecycle, passive renderer behavior, and async hook coordination."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Runtime validation for source-tagged IPC and cached snapshots."}
+{"file":".trellis/spec/frontend/desktop-companion-guidelines.md","reason":"Shared main/taskbar projections and native menu integration boundaries."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace source identity through native persistence, Rust fetches, IPC, reducers, and both renderers."}
