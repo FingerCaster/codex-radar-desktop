@@ -4,20 +4,20 @@
 
 - [x] Scaffold pnpm + React/TypeScript/Vite + Tauri 2 with project-local CLI.
 - [x] Add lint, typecheck, frontend test, Rust test, and build dependencies.
-- [ ] Implement typed Rust public-summary adapter, ranking, tie handling, and
+- [x] Implement typed Rust public-summary adapter, ranking, tie handling, and
   stale timestamp validation with fixtures and unit tests.
-- [ ] Implement shared service state, ETag conditional refresh, five-minute
+- [x] Implement shared service state, ETag conditional refresh, five-minute
   background polling, event emission, and leader-set notification dedupe.
-- [ ] Implement one-window resize/hide lifecycle and tray menu behavior.
-- [ ] Implement compact and expanded React views with live events, manual
+- [x] Implement one-window resize/hide lifecycle and tray menu behavior.
+- [x] Implement compact and expanded React views with live events, manual
   refresh, cached last-known-good data, offline/stale handling, and attribution.
-- [ ] Add app/tray icons and minimum Tauri capabilities.
-- [ ] Run formatting, linting, type checking, tests, and frontend production
+- [x] Add app/tray icons and minimum Tauri capabilities.
+- [x] Run formatting, linting, type checking, tests, and frontend production
   build; fix all failures.
-- [ ] Launch the desktop app and visually inspect compact, expanded, loading,
+- [x] Launch the desktop app and visually inspect compact, expanded, loading,
   and stale states with accessibility-tree and screenshots.
-- [ ] Produce a Windows Tauri bundle and verify expected artifacts.
-- [ ] Replace placeholder Trellis frontend/backend guidelines with conventions
+- [x] Produce a Windows Tauri bundle and verify expected artifacts.
+- [x] Replace placeholder Trellis frontend/backend guidelines with conventions
   evidenced by the implemented code, then run the final Trellis quality pass.
 
 ## Validation Commands
@@ -55,3 +55,10 @@ pnpm tauri build
   specific appearance feature that breaks another desktop target.
 - Native notification: lack of permission is non-fatal and must not block state
   updates or polling.
+
+## Completion Note
+
+The MVP and its six follow-up children shipped through the public `v0.2.0`
+release. Child tasks intentionally evolved the original platform and feature
+scope; their archived PRDs and executable specs are authoritative for the
+final Windows/macOS support boundary.

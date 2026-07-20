@@ -36,6 +36,10 @@
 - macOS code paths are reviewed but still require a native macOS build and
   interaction check before release.
 
+The user requested archival after the Windows `v0.2.0` release. The remaining
+macOS and edge-case native checks above stay recorded as residual platform
+verification rather than being marked as completed on this Windows host.
+
 ## Automated Verification Results
 
 Passed on Windows 10.0.26200 x64 with WebView2 148.0.3967.70:

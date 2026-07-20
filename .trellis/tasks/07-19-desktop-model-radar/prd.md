@@ -65,26 +65,26 @@ and notify the user only when the set of highest-scoring models changes.
 
 ## Acceptance Criteria
 
-- [ ] A fresh launch fetches the public summary and shows the current leader in
+- [x] A fresh launch fetches the public summary and shows the current leader in
   a compact window without emitting a notification.
-- [ ] Clicking the compact surface expands the window without opening a second
+- [x] Clicking the compact surface expands the window without opening a second
   window and shows a ranked detail view plus mandatory attribution.
-- [ ] Manual refresh visibly reports loading, success, and failure states
+- [x] Manual refresh visibly reports loading, success, and failure states
   without shifting or overlapping controls.
-- [ ] Background refresh uses a five-minute interval and ETag revalidation;
+- [x] Background refresh uses a five-minute interval and ETag revalidation;
   unchanged or older data does not create duplicate notifications.
-- [ ] A changed top-model identity set emits one native notification and updates
+- [x] A changed top-model identity set emits one native notification and updates
   the UI; a score-only change does not emit one.
-- [ ] Network, HTTP, schema, empty-candidate, and stale-payload failures preserve
+- [x] Network, HTTP, schema, empty-candidate, and stale-payload failures preserve
   the last-known-good snapshot and surface an offline/stale indicator.
-- [ ] The tray can restore/hide the window, request refresh, and exit the app;
+- [x] The tray can restore/hide the window, request refresh, and exit the app;
   the window close action hides rather than exits.
-- [ ] Parser/ranking unit tests cover a normal payload, ties, malformed data,
+- [x] Parser/ranking unit tests cover a normal payload, ties, malformed data,
   missing candidates, and older payload rejection.
-- [ ] `pnpm lint`, `pnpm typecheck`, frontend tests, Rust formatting, clippy,
+- [x] `pnpm lint`, `pnpm typecheck`, frontend tests, Rust formatting, clippy,
   Rust tests, the frontend production build, and `pnpm tauri build` pass on
   Windows.
-- [ ] The running Windows desktop window is visually checked in compact and
+- [x] The running Windows desktop window is visually checked in compact and
   expanded states at desktop and narrow/high-scale dimensions.
 
 ## Out of Scope

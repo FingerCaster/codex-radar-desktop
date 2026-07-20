@@ -55,8 +55,9 @@
     (`4,993,024` bytes, SHA-256 `4545D58E3B7D57B9D10E10D88DF3B32ABCA3D8EEA3800A7AC58F0F6E728652C4`)
   - NSIS: `src-tauri/target/release/bundle/nsis/Model Radar_0.1.0_x64-setup.exe`
     (`3,506,732` bytes, SHA-256 `4D72629AB10D83A403E2369F5D3C42AA22D7DCECB160C4C51062A9DF7E0BECC2`)
-- [x] Perform a final cross-layer race/data-contract review. Leave the task in
-  progress for the user's Windows/macOS native visual validation.
+- [x] Perform a final cross-layer race/data-contract review. The feature shipped
+  in `v0.2.0`; the user requested archival after release. Native macOS runtime
+  verification remains documented as a platform-specific residual check.
 
 ## Risk and rollback points
 
