@@ -280,3 +280,36 @@ Prevent “main + taskbar both gone / off-screen” dead-ends after taskbar comp
 
 - cargo test (76 ok)
 - cargo clippy -D warnings
+
+
+## Session 6: Windows 任务栏生命周期与 DPI 恢复
+
+**Date**: 2026-07-22
+**Task**: Windows 任务栏生命周期与 DPI 恢复
+**Branch**: `main`
+
+### Summary
+
+修复 WH_MOUSE_LL 专用线程生命周期、Explorer 异步重建、偏好与原生可见性恢复，并以子 HWND DPI 下限和窄客户区 CSS 兜底解决任务栏内容裁切；完成 Rust/前端全量验证及 MSI/NSIS 构建。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `93cbcf2` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
