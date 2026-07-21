@@ -1,7 +1,14 @@
-use std::{ffi::c_void, ptr};
+use std::{
+    ffi::c_void,
+    ptr,
+    sync::atomic::{AtomicBool, AtomicIsize, Ordering},
+    sync::Mutex,
+};
 
 use tauri::{AppHandle, Manager, WebviewWindow, WebviewWindowBuilder};
 use windows::Win32::Foundation::HWND;
+
+use super::DesktopController;
 
 const TASKBAR_WINDOW_LABEL: &str = "taskbar";
 const TASKBAR_GAP_LOGICAL: f64 = 2.0;
@@ -9,6 +16,15 @@ const SWP_NOACTIVATE: u32 = 0x0010;
 const SW_HIDE: i32 = 0;
 const SW_SHOW: i32 = 5;
 const HWND_TOP: isize = 0;
+const WH_MOUSE_LL: i32 = 14;
+const WM_LBUTTONUP: u32 = 0x0202;
+const WM_RBUTTONUP: u32 = 0x0205;
+const HC_ACTION: i32 = 0;
+
+static TASKBAR_APP: Mutex<Option<AppHandle>> = Mutex::new(None);
+static TASKBAR_HIT_RECT: Mutex<Option<WinRect>> = Mutex::new(None);
+static TASKBAR_MOUSE_HOOK: AtomicIsize = AtomicIsize::new(0);
+static TASKBAR_HOOK_INSTALLED: AtomicBool = AtomicBool::new(false);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -54,7 +70,11 @@ struct BlockerSearch {
 
 pub fn create_taskbar_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(window) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
-        return Ok(window);
+        if taskbar_companion_is_attached(&window) {
+            return Ok(window);
+        }
+        // Detached companions cannot be re-parented; close and rebuild under Shell_TrayWnd.
+        let _ = window.close();
     }
 
     let taskbar = find_win11_taskbar()?;
@@ -67,11 +87,190 @@ pub fn create_taskbar_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .ok_or_else(|| "taskbar window configuration is missing".to_owned())?;
 
     let parent = HWND(taskbar as *mut c_void);
-    WebviewWindowBuilder::from_config(app, config)
+    let window = WebviewWindowBuilder::from_config(app, config)
         .map_err(|error| error.to_string())?
         .parent_raw(parent)
         .build()
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    install_taskbar_input_hooks(app, &window)?;
+    Ok(window)
+}
+
+/// Install recovery input for the taskbar companion.
+///
+/// WebView2's `Chrome_RenderWidgetHostHWND` lives in another process, so
+/// subclassing our Tauri HWND never sees real mouse clicks. A low-level mouse
+/// hook watches the companion screen rect instead.
+pub fn install_taskbar_input_hooks(
+    app: &AppHandle,
+    window: &WebviewWindow,
+) -> Result<(), String> {
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?.0 as isize;
+    if unsafe { IsWindow(hwnd) } == 0 {
+        return Err("taskbar companion handle is invalid".to_owned());
+    }
+
+    if let Ok(mut slot) = TASKBAR_APP.lock() {
+        *slot = Some(app.clone());
+    }
+    if let Ok(rect) = window_rect(hwnd) {
+        update_taskbar_hit_rect(Some(rect));
+    }
+    install_taskbar_mouse_hook()?;
+    Ok(())
+}
+
+pub fn clear_taskbar_hit_rect() {
+    update_taskbar_hit_rect(None);
+}
+
+fn update_taskbar_hit_rect(rect: Option<WinRect>) {
+    if let Ok(mut slot) = TASKBAR_HIT_RECT.lock() {
+        *slot = rect;
+    }
+}
+
+fn install_taskbar_mouse_hook() -> Result<(), String> {
+    if TASKBAR_HOOK_INSTALLED.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    let hook = unsafe {
+        SetWindowsHookExW(
+            WH_MOUSE_LL,
+            Some(taskbar_mouse_hook_proc),
+            GetModuleHandleW(ptr::null()),
+            0,
+        )
+    };
+    if hook == 0 {
+        TASKBAR_HOOK_INSTALLED.store(false, Ordering::SeqCst);
+        return Err(last_error("SetWindowsHookExW(WH_MOUSE_LL)"));
+    }
+    TASKBAR_MOUSE_HOOK.store(hook, Ordering::SeqCst);
+    Ok(())
+}
+
+#[repr(C)]
+struct PointI32 {
+    x: i32,
+    y: i32,
+}
+
+#[repr(C)]
+struct MsllHookStruct {
+    pt: PointI32,
+    mouse_data: u32,
+    flags: u32,
+    time: u32,
+    extra_info: usize,
+}
+
+unsafe extern "system" fn taskbar_mouse_hook_proc(
+    code: i32,
+    wparam: usize,
+    lparam: isize,
+) -> isize {
+    // SAFETY: WH_MOUSE_LL contract; lparam points to MSLLHOOKSTRUCT when code == HC_ACTION.
+    unsafe {
+        if code == HC_ACTION
+            && (wparam == WM_LBUTTONUP as usize || wparam == WM_RBUTTONUP as usize)
+            && lparam != 0
+        {
+            let info = &*(lparam as *const MsllHookStruct);
+            if taskbar_hit_rect_contains(info.pt.x, info.pt.y) {
+                if wparam == WM_LBUTTONUP as usize {
+                    dispatch_taskbar_left_click();
+                } else {
+                    dispatch_taskbar_right_click();
+                }
+            }
+        }
+        CallNextHookEx(
+            TASKBAR_MOUSE_HOOK.load(Ordering::SeqCst),
+            code,
+            wparam,
+            lparam,
+        )
+    }
+}
+
+fn taskbar_hit_rect_contains(x: i32, y: i32) -> bool {
+    let Ok(slot) = TASKBAR_HIT_RECT.lock() else {
+        return false;
+    };
+    let Some(rect) = *slot else {
+        return false;
+    };
+    x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+}
+
+fn dispatch_taskbar_left_click() {
+    let app = {
+        let Ok(guard) = TASKBAR_APP.lock() else {
+            return;
+        };
+        guard.as_ref().cloned()
+    };
+    let Some(app) = app else {
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        let controller = app.state::<DesktopController>();
+        if let Err(error) = controller.show_main_details(&app) {
+            eprintln!("[model-radar] native taskbar left-click failed: {error}");
+            if let Err(recovery) = controller.force_show_main_window(&app) {
+                eprintln!("[model-radar] native taskbar force-show failed: {recovery}");
+            }
+        }
+    });
+}
+
+fn dispatch_taskbar_right_click() {
+    let app = {
+        let Ok(guard) = TASKBAR_APP.lock() else {
+            return;
+        };
+        guard.as_ref().cloned()
+    };
+    let Some(app) = app else {
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        let controller = app.state::<DesktopController>();
+        if let Some(window) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
+            if let Err(error) = controller.show_context_menu(&window) {
+                eprintln!("[model-radar] native taskbar right-click menu failed: {error}");
+            }
+        }
+    });
+}
+
+/// True when the companion HWND still exists and is parented to the primary taskbar.
+pub fn taskbar_companion_is_attached(window: &WebviewWindow) -> bool {
+    let Ok(hwnd) = window.hwnd() else {
+        return false;
+    };
+    let child = hwnd.0 as isize;
+    if unsafe { IsWindow(child) } == 0 {
+        return false;
+    }
+    let parent = unsafe { GetParent(child) };
+    if parent == 0 || unsafe { IsWindow(parent) } == 0 {
+        return false;
+    }
+    find_window("Shell_TrayWnd").is_some_and(|taskbar| parent == taskbar)
+}
+
+/// Attached, still a live HWND, and currently visible to the user.
+pub fn taskbar_companion_is_healthy(window: &WebviewWindow) -> bool {
+    if !taskbar_companion_is_attached(window) {
+        return false;
+    }
+    let Ok(hwnd) = window.hwnd() else {
+        return false;
+    };
+    let child = hwnd.0 as isize;
+    unsafe { IsWindowVisible(child) != 0 }
 }
 
 pub fn place_taskbar_window(
@@ -127,10 +326,15 @@ pub fn place_taskbar_window(
         return Err(last_error("SetWindowPos"));
     }
 
+    // Keep LL-mouse hit testing in sync with the placed screen rect.
+    if let Ok(screen) = window_rect(child) {
+        update_taskbar_hit_rect(Some(screen));
+    }
     Ok(())
 }
 
 pub fn hide_taskbar_window(window: &WebviewWindow) -> Result<(), String> {
+    clear_taskbar_hit_rect();
     let child = match window.hwnd() {
         Ok(hwnd) => hwnd.0 as isize,
         Err(_) => return Ok(()),
@@ -434,10 +638,18 @@ unsafe extern "system" {
         height: i32,
         flags: u32,
     ) -> i32;
+    fn SetWindowsHookExW(
+        id_hook: i32,
+        hook_proc: Option<unsafe extern "system" fn(i32, usize, isize) -> isize>,
+        module: isize,
+        thread_id: u32,
+    ) -> isize;
+    fn CallNextHookEx(hook: isize, code: i32, wparam: usize, lparam: isize) -> isize;
 }
 
 #[link(name = "kernel32")]
 unsafe extern "system" {
+    fn GetModuleHandleW(module_name: *const u16) -> isize;
     fn GetLastError() -> u32;
 }
 

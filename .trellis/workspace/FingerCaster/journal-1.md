@@ -5,8 +5,6 @@
 
 ---
 
-
-
 ## Session 1: Taskbar companion implementation
 
 **Date**: 2026-07-20
@@ -133,7 +131,6 @@ presets shared by the tray, Windows taskbar context menu, and macOS status item.
   actions, locked presets, and hidden-window positioning on Windows.
 - Build and verify the same native menu and restore behavior on macOS.
 
-
 ## Session 2: Desktop settings and start-at-login
 
 **Date**: 2026-07-20
@@ -166,7 +163,6 @@ Added in-place desktop settings, shared tray/taskbar menu start-at-login control
 
 - None - task complete
 
-
 ## Session 3: Desktop visual polish and quick positions
 
 **Date**: 2026-07-21
@@ -198,7 +194,6 @@ Refined all desktop projections, bundled Sol/Terra/Luna and Codex model marks, a
 ### Next Steps
 
 - None - task complete
-
 
 ## Session 4: Publish Codex Radar Desktop v0.2.0
 
@@ -233,7 +228,6 @@ Synchronized application metadata to 0.2.0, passed the complete frontend and Rus
 
 - None - task complete
 
-
 ## Session 5: Archive completed Codex Radar tasks
 
 **Date**: 2026-07-21
@@ -265,3 +259,24 @@ Closed the delivered MVP, taskbar companion, distributed radar source, and one-t
 ### Next Steps
 
 - None - task complete
+
+---
+
+## 2026-07-21 — Desktop recovery harden
+
+### Goal
+
+Prevent “main + taskbar both gone / off-screen” dead-ends after taskbar companion failure.
+
+### Changes
+
+- Taskbar: rebuild detached companion; health-check after place/show
+- Visibility: establish taskbar before hiding main
+- Recovery: clamp main into a work area when fully off-screen
+- Spec: desktop-companion-contract.md
+- Task: 07-21-desktop-recovery-harden
+
+### Validation
+
+- cargo test (76 ok)
+- cargo clippy -D warnings

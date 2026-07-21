@@ -11,6 +11,14 @@ use radar::{get_radar_snapshot, refresh_radar, start_background_polling, RadarSe
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        // Single-instance must register first so a second launch can recover the UI
+        // when the tray/taskbar surfaces are stuck or the main window is hidden.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            let controller = app.state::<desktop::DesktopController>();
+            if let Err(error) = controller.force_show_main_window(app) {
+                eprintln!("[model-radar] second-instance force-show failed: {error}");
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(

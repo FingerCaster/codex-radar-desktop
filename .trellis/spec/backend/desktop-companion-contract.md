@@ -92,9 +92,11 @@ desktop.radar-source.distributed -> 分布式
   existing taskbar surface.
 - Start exactly one Windows layout monitor after desktop initialization. While
   `showTaskbarWindow` is true, it repeats blocker-aware placement every second.
-  One tick is serial and holds the preference guard from the enabled check
-  through placement or failure demotion, so an old tick cannot overwrite a
-  newer menu action.
+  Each tick **snapshots** preferences under the preference mutex, then **drops
+  the guard before** Wry/Win32 place/show work. On failure it re-locks only for
+  demotion commit. Holding the guard across placement deadlocks tray left-click
+  and menu actions that need the same lock while `scale_factor` waits on the
+  event loop.
 - Compare the current child screen rectangle with the computed taskbar-relative
   target before `SetWindowPos`. Equal geometry is a no-op and must not raise the
   child in Z order every second.
@@ -104,6 +106,40 @@ desktop.radar-source.distributed -> 分布式
   publish the complete state. Do not roll back to the known-invalid rectangle.
   Persistence/menu/event failures are aggregated into one warning; the native
   main/tray recovery path remains authoritative.
+- Visibility apply on Windows establishes the taskbar companion (create or
+  rebuild if detached, place, show, health-check) **before** hiding the main
+  window. A failed companion setup must leave the main window visible and must
+  not commit a taskbar-only preference.
+- `ShowMainWindow` uses a **main-only** apply path (`apply_main_window_visibility`).
+  Showing the main window must not call taskbar placement. A previous bug made
+  tray left-click appear dead: toggle-show ran full visibility, taskbar ensure
+  failed, and the option transaction rolled back so main never appeared.
+- Windows tray left-click toggles: when main is hidden it calls
+  `force_show_main_window` (not a bare preference toggle). That path shows +
+  clamps + focuses main, and on preference-transaction failure still runs
+  emergency native show + best-effort `showMainWindow: true` persist. A final
+  tray handler fallback calls `recover_main_window_for_safety` if even that fails.
+- `show_main_details` (taskbar left-click / macOS tray) force-shows the main
+  window **before** expanding detail size. Expand failures are logged and must
+  not leave the user with a still-hidden window.
+- `tauri-plugin-single-instance` is registered first. A second process launch
+  while the app is already running calls `force_show_main_window` on the live
+  instance so users can recover by starting Model Radar again (Start menu /
+  shortcut) even when tray clicks appear dead.
+- Windows taskbar companion input uses a process-wide `WH_MOUSE_LL` hook and the
+  placed companion screen rect. WebView2's `Chrome_RenderWidgetHostHWND` is
+  out-of-process, so subclassing the Tauri HWND never sees real mouse clicks.
+  Left-up in the rect → `show_main_details` / force-show; right-up → shared
+  context menu. Clear the hit rect when the companion is hidden.
+- While `showTaskbarWindow` is true, each monitor tick reuses a healthy
+  companion when present; if the labeled window is missing or detached from
+  `Shell_TrayWnd`, rebuild it under the primary taskbar, place, show, and
+  require `taskbar_companion_is_healthy` (attached + visible). Failure of that
+  path triggers the same safety demotion as placement failure.
+- Any path that surfaces the main window for recovery (taskbar demotion,
+  show-main, show-details, tray force-show) must ensure the outer rect intersects
+  at least one monitor work area. Fully off-screen seeds use the same multi-monitor
+  restore clamp/center rules as startup and persist the recovered compact corner.
 - Main-window resizing maps each axis by its normalized available travel:
   `offset / (workLength - currentLength)`. This preserves all four edges and
   makes compact-detail-compact transitions reversible, including negative
@@ -200,13 +236,16 @@ desktop.radar-source.distributed -> 分布式
 ## 4. Validation & Error Matrix
 
 | Condition | Required behavior |
-|---|---|
+| --- | --- |
 | Opacity outside 100/90/80/70/60 | Reject command; loaded value becomes 100 |
 | Both display projections disabled | Enable the other projection before commit |
 | Explorer/taskbar host unavailable | Keep tray/main recovery; return/log a desktop error |
 | Requested taskbar geometry does not fit | Return `None`/error; never shrink the viewport |
 | External blocker or task band changes with a free slot | Move to the new rightmost slot on the next monitor tick |
-| Runtime placement has no complete slot or a dead host | Hide companion, show main, persist `showTaskbarWindow: false`; manual re-enable retries |
+| Runtime placement has no complete slot or a dead host | Hide companion, show main on-screen, persist `showTaskbarWindow: false`; manual re-enable retries |
+| Taskbar companion HWND missing or detached while preferred | Rebuild under `Shell_TrayWnd` once per tick; demote if rebuild/place/health fails |
+| Taskbar create/place fails while applying taskbar-only visibility | Do not hide main; return error so the option transaction rolls back |
+| Main window fully outside every work area when shown | Clamp/center via restore rules and persist the recovered position |
 | Runtime target rectangle is unchanged | Skip `SetWindowPos` and retain current Z order |
 | Safety-demotion persistence/menu/event step fails | Keep the safe native/runtime projection and emit one aggregated warning; never restore the overlap |
 | Existing macOS title is hidden | Set an explicit empty title |

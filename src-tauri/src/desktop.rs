@@ -750,7 +750,67 @@ impl DesktopController {
     }
 
     pub fn toggle_main_window(&self, app: &AppHandle) -> Result<DesktopPreferences, String> {
-        self.toggle_option(app, DesktopOption::ShowMainWindow)
+        let current = self.preferences()?;
+        if current.show_main_window {
+            self.set_option(app, DesktopOption::ShowMainWindow, false)
+        } else {
+            // Showing must never depend on a healthy taskbar companion; tray left-click
+            // is the last recovery surface when the companion is already broken.
+            self.force_show_main_window(app)
+        }
+    }
+
+    /// Force the main window on-screen and persist `showMainWindow: true`.
+    /// Taskbar health is best-effort and must not block tray recovery.
+    pub fn force_show_main_window(&self, app: &AppHandle) -> Result<DesktopPreferences, String> {
+        match self.set_option(app, DesktopOption::ShowMainWindow, true) {
+            Ok(preferences) => {
+                if let Err(error) = self.recover_main_window_for_safety(app) {
+                    eprintln!(
+                        "[model-radar] main recovery after force-show had warnings: {error}"
+                    );
+                }
+                Ok(preferences)
+            }
+            Err(error) => {
+                // Preference transaction failed (often a dead taskbar path). Still try to
+                // surface the native window so the user is not stuck with only a tray icon.
+                if let Err(recovery_error) = self.emergency_show_main_window(app) {
+                    return Err(format!(
+                        "{error}; emergency main show failed: {recovery_error}"
+                    ));
+                }
+                match self.preferences() {
+                    Ok(preferences) if preferences.show_main_window => Ok(preferences),
+                    Ok(_) | Err(_) => Err(error),
+                }
+            }
+        }
+    }
+
+    /// Last-resort native show without requiring a successful preference apply.
+    fn emergency_show_main_window(&self, app: &AppHandle) -> Result<(), String> {
+        self.recover_main_window_for_safety(app)?;
+
+        // Best-effort: persist showMainWindow=true so the next tray click / menu
+        // agrees with the visible main window. Leave taskbar preference alone;
+        // the monitor demotes a broken companion independently.
+        let mut current = self.lock_preferences()?;
+        if current.show_main_window {
+            return Ok(());
+        }
+        let mut next = current.clone();
+        next.show_main_window = true;
+        persist_preferences(&self.preferences_path, &next)?;
+        if let Err(error) = self.menu.sync(&next) {
+            let _ = persist_preferences(&self.preferences_path, &current);
+            let _ = self.menu.sync(&current);
+            return Err(error);
+        }
+        *current = next.clone();
+        drop(current);
+        let _ = app.emit(PREFERENCES_UPDATED_EVENT, &next);
+        Ok(())
     }
 
     pub fn set_main_expanded(&self, app: &AppHandle, expanded: bool) -> Result<(), String> {
@@ -790,10 +850,11 @@ impl DesktopController {
     }
 
     pub fn show_main_details(&self, app: &AppHandle) -> Result<DesktopPreferences, String> {
-        self.set_main_expanded(app, true)?;
-        let preferences = self.set_option(app, DesktopOption::ShowMainWindow, true)?;
-        if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-            window.set_focus().map_err(|error| error.to_string())?;
+        // Visibility first: expand/resize must not block recovery when the main
+        // window is hidden or geometry locks are contended (taskbar/tray click).
+        let preferences = self.force_show_main_window(app)?;
+        if let Err(error) = self.set_main_expanded(app, true) {
+            eprintln!("[model-radar] expand after show-main-details failed: {error}");
         }
         let _ = app.emit(SHOW_MAIN_DETAILS_EVENT, ());
         Ok(preferences)
@@ -1079,21 +1140,46 @@ impl DesktopController {
 
     #[cfg(windows)]
     fn monitor_taskbar_once(&self, app: &AppHandle) -> Result<TaskbarMonitorOutcome, String> {
-        let current = self.lock_preferences()?;
-        if !current.show_taskbar_window {
-            return Ok(TaskbarMonitorOutcome::Inactive);
-        }
+        // Never hold the preference mutex across Wry/Win32 placement work: tray left-click
+        // and menu actions need that lock, and scale_factor/show wait on the event loop.
+        let snapshot = {
+            let current = self.lock_preferences()?;
+            if !current.show_taskbar_window {
+                return Ok(TaskbarMonitorOutcome::Inactive);
+            }
+            current.clone()
+        };
 
-        let placement = app
-            .get_webview_window(TASKBAR_WINDOW_LABEL)
-            .ok_or_else(|| "taskbar companion window is unavailable".to_owned())
-            .and_then(|taskbar| windows::place_taskbar_window(&taskbar, TASKBAR_SIZE));
-        match placement {
+        match self.ensure_taskbar_projection(app, &snapshot) {
             Ok(()) => Ok(TaskbarMonitorOutcome::Placed),
             Err(placement_error) => {
+                let current = self.lock_preferences()?;
+                if !current.show_taskbar_window {
+                    return Ok(TaskbarMonitorOutcome::Inactive);
+                }
                 Ok(self.commit_taskbar_monitor_failure(app, current, placement_error))
             }
         }
+    }
+
+    #[cfg(windows)]
+    fn ensure_taskbar_projection(
+        &self,
+        app: &AppHandle,
+        preferences: &DesktopPreferences,
+    ) -> Result<(), String> {
+        let taskbar = windows::create_taskbar_window(app)?;
+        // Re-install after recreate / attach; cheap no-op when already hooked.
+        windows::install_taskbar_input_hooks(app, &taskbar)?;
+        taskbar
+            .set_ignore_cursor_events(preferences.click_through)
+            .map_err(|error| error.to_string())?;
+        windows::place_taskbar_window(&taskbar, TASKBAR_SIZE)?;
+        taskbar.show().map_err(|error| error.to_string())?;
+        if !windows::taskbar_companion_is_healthy(&taskbar) {
+            return Err("taskbar companion is not healthy after placement".to_owned());
+        }
+        Ok(())
     }
 
     #[cfg(windows)]
@@ -1107,13 +1193,13 @@ impl DesktopController {
             .expect("taskbar monitor failure requires an enabled taskbar preference");
         let mut recovery_errors = Vec::new();
 
-        match app.get_webview_window(MAIN_WINDOW_LABEL) {
-            Some(main) => {
-                if let Err(error) = windows::show_recovery_window(&main) {
-                    recovery_errors.push(format!("show main window: {error}"));
-                }
-            }
-            None => recovery_errors.push("main window is unavailable".to_owned()),
+        // Commit preference memory before native recovery so tray clicks observe
+        // showMainWindow=true even if window show is slow.
+        *current = next.clone();
+        drop(current);
+
+        if let Err(error) = self.recover_main_window_for_safety(app) {
+            recovery_errors.push(format!("recover main window: {error}"));
         }
         if let Some(taskbar) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
             if let Err(error) = windows::hide_taskbar_window(&taskbar) {
@@ -1126,9 +1212,6 @@ impl DesktopController {
         if let Err(error) = self.menu.sync(&next) {
             recovery_errors.push(format!("sync desktop menu: {error}"));
         }
-
-        *current = next.clone();
-        drop(current);
         if let Err(error) = app.emit(PREFERENCES_UPDATED_EVENT, &next) {
             recovery_errors.push(format!("emit desktop preferences: {error}"));
         }
@@ -1149,9 +1232,8 @@ impl DesktopController {
             DesktopOption::AlwaysOnTop => self.apply_always_on_top(app, preferences.always_on_top),
             DesktopOption::ClickThrough => self.apply_click_through(app, preferences.click_through),
             DesktopOption::PositionLocked => Ok(()),
-            DesktopOption::ShowTaskbarWindow | DesktopOption::ShowMainWindow => {
-                self.apply_visibility(app, preferences)
-            }
+            DesktopOption::ShowMainWindow => self.apply_main_window_visibility(app, preferences),
+            DesktopOption::ShowTaskbarWindow => self.apply_visibility(app, preferences),
             DesktopOption::LaunchAtLogin => {
                 self.apply_launch_at_login(app, preferences.launch_at_login)
             }
@@ -1202,6 +1284,42 @@ impl DesktopController {
         Ok(())
     }
 
+    /// Main-window-only visibility path used by tray toggle / show-details.
+    /// Must not call taskbar placement when showing: a broken companion previously
+    /// made left-click appear dead (apply failed → transaction rolled back).
+    fn apply_main_window_visibility(
+        &self,
+        app: &AppHandle,
+        preferences: &DesktopPreferences,
+    ) -> Result<(), String> {
+        let main = app
+            .get_webview_window(MAIN_WINDOW_LABEL)
+            .ok_or_else(|| "main window is unavailable".to_owned())?;
+
+        if preferences.show_main_window {
+            main.show().map_err(|error| error.to_string())?;
+            if let Err(error) = self.ensure_main_window_intersects_work_area(app) {
+                eprintln!(
+                    "[model-radar] main window on-screen clamp after show failed: {error}"
+                );
+            }
+            return Ok(());
+        }
+
+        // Hiding main is only safe when the taskbar companion is healthy (or disabled).
+        #[cfg(windows)]
+        if preferences.show_taskbar_window {
+            if let Err(error) = self.ensure_taskbar_projection(app, preferences) {
+                let _ = windows::show_recovery_window(&main);
+                let _ = self.ensure_main_window_intersects_work_area(app);
+                return Err(error);
+            }
+        }
+
+        main.hide().map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
     fn apply_visibility(
         &self,
         app: &AppHandle,
@@ -1210,30 +1328,144 @@ impl DesktopController {
         let main = app
             .get_webview_window(MAIN_WINDOW_LABEL)
             .ok_or_else(|| "main window is unavailable".to_owned())?;
-        if preferences.show_main_window {
-            main.show().map_err(|error| error.to_string())?;
-        } else {
-            main.hide().map_err(|error| error.to_string())?;
-        }
 
+        // Establish the taskbar companion before hiding the main window so a
+        // failed companion setup never leaves the user with zero surfaces.
+        // When the main window is also being shown, taskbar failure is soft:
+        // menu "show taskbar" while main is visible must still succeed.
         #[cfg(windows)]
         {
             if preferences.show_taskbar_window {
-                let taskbar = windows::create_taskbar_window(app)?;
-                taskbar
-                    .set_ignore_cursor_events(preferences.click_through)
-                    .map_err(|error| error.to_string())?;
-                windows::place_taskbar_window(&taskbar, TASKBAR_SIZE)?;
-                taskbar.show().map_err(|error| error.to_string())?;
+                if let Err(error) = self.ensure_taskbar_projection(app, preferences) {
+                    if preferences.show_main_window {
+                        eprintln!(
+                            "[model-radar] taskbar companion ensure failed while main stays visible: {error}"
+                        );
+                    } else {
+                        // Taskbar-only request cannot proceed; keep main up.
+                        let _ = windows::show_recovery_window(&main);
+                        let _ = self.ensure_main_window_intersects_work_area(app);
+                        return Err(error);
+                    }
+                }
             } else if let Some(taskbar) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
                 windows::hide_taskbar_window(&taskbar)?;
             }
+        }
+
+        if preferences.show_main_window {
+            main.show().map_err(|error| error.to_string())?;
+            if let Err(error) = self.ensure_main_window_intersects_work_area(app) {
+                eprintln!(
+                    "[model-radar] main window on-screen clamp after show failed: {error}"
+                );
+            }
+        } else {
+            main.hide().map_err(|error| error.to_string())?;
         }
 
         #[cfg(target_os = "macos")]
         self.sync_companion_tray(app, preferences)?;
 
         Ok(())
+    }
+
+    /// Show the main window and clamp it into an available work area when fully off-screen.
+    fn recover_main_window_for_safety(&self, app: &AppHandle) -> Result<(), String> {
+        let main = app
+            .get_webview_window(MAIN_WINDOW_LABEL)
+            .ok_or_else(|| "main window is unavailable".to_owned())?;
+        if let Err(error) = self.ensure_main_window_intersects_work_area(app) {
+            eprintln!(
+                "[model-radar] main window on-screen clamp during recovery failed: {error}"
+            );
+        }
+        #[cfg(windows)]
+        {
+            windows::show_recovery_window(&main)?;
+        }
+        #[cfg(not(windows))]
+        {
+            main.show().map_err(|error| error.to_string())?;
+        }
+        let _ = main.set_focus();
+        Ok(())
+    }
+
+    /// When the outer rect has zero intersection with every work area, reclamp
+    /// using the same multi-monitor restore rules as startup.
+    fn ensure_main_window_intersects_work_area(&self, app: &AppHandle) -> Result<(), String> {
+        let window = app
+            .get_webview_window(MAIN_WINDOW_LABEL)
+            .ok_or_else(|| "main window is unavailable".to_owned())?;
+        let position = window.outer_position().map_err(|error| error.to_string())?;
+        let window_size = window.outer_size().map_err(|error| error.to_string())?;
+        let monitors = window
+            .available_monitors()
+            .map_err(|error| error.to_string())?;
+        if monitors.is_empty() {
+            return Ok(());
+        }
+
+        let any_intersection = monitors.iter().any(|monitor| {
+            let work_area = monitor.work_area();
+            window_work_area_intersection(
+                position,
+                window_size,
+                (work_area.position, work_area.size),
+            ) > 0
+        });
+        if any_intersection {
+            return Ok(());
+        }
+
+        let _gate = self.lock_main_position_gate()?;
+        let fallback = window
+            .current_monitor()
+            .map_err(|error| error.to_string())?
+            .or(window
+                .primary_monitor()
+                .map_err(|error| error.to_string())?)
+            .or_else(|| monitors.first().cloned())
+            .ok_or_else(|| "no monitor is available for main window recovery".to_owned())?;
+        let work_areas = monitors
+            .iter()
+            .map(|monitor| {
+                let work_area = monitor.work_area();
+                (
+                    work_area.position,
+                    work_area.size,
+                    compact_physical_size(work_area.size, monitor.scale_factor())
+                        .unwrap_or(window_size),
+                )
+            })
+            .collect::<Vec<_>>();
+        let fallback_work_area = fallback.work_area();
+        let fallback_window_size =
+            compact_physical_size(fallback_work_area.size, fallback.scale_factor())
+                .unwrap_or(window_size);
+        let seed = self
+            .lock_main_position_state()?
+            .last_saved
+            .map(PhysicalPosition::from)
+            .unwrap_or(position);
+        let target = restored_main_window_position(
+            seed,
+            &work_areas,
+            (
+                fallback_work_area.position,
+                fallback_work_area.size,
+                fallback_window_size,
+            ),
+        );
+
+        self.invalidate_main_position_capture()?;
+        window
+            .set_position(target)
+            .map_err(|error| error.to_string())?;
+        // Persist the recovered compact-equivalent corner so the next launch
+        // does not re-apply a fully off-screen seed.
+        self.persist_main_window_position(target)
     }
 
     fn sync_companion_tray(
@@ -1318,7 +1550,14 @@ pub fn build_tray(app: &AppHandle) -> Result<(), String> {
                         }
                     };
                     if let Err(error) = result {
-                        eprintln!("[model-radar] tray toggle failed: {error}");
+                        eprintln!("[model-radar] tray action failed: {error}");
+                        // Absolute last resort: ignore preference state and surface main.
+                        if let Err(recovery_error) = controller.recover_main_window_for_safety(&app)
+                        {
+                            eprintln!(
+                                "[model-radar] tray emergency main recovery failed: {recovery_error}"
+                            );
+                        }
                     }
                 });
             }
@@ -1915,7 +2154,8 @@ mod tests {
         anchored_resize_position, bounded_single_line, canonical_compact_position,
         fit_logical_size, load_json, persist_json, persist_preferences, preset_position,
         radar_source_checks, radar_source_from_menu_id, restored_main_window_position,
-        tray_left_click_behavior, CompanionProjection, DesktopOption, DesktopPreferences,
+        tray_left_click_behavior, window_work_area_intersection, CompanionProjection,
+        DesktopOption, DesktopPreferences,
         MainPositionSaveState, MainWindowPositionPreset, RadarSource, SavedMainWindowPosition,
         TrayLeftClickBehavior, MENU_LAUNCH_AT_LOGIN, MENU_POSITION_BOTTOM_LEFT,
         MENU_POSITION_BOTTOM_RIGHT, MENU_POSITION_CENTER, MENU_POSITION_TOP_LEFT,
@@ -2417,6 +2657,69 @@ mod tests {
         assert!(!fallback.show_taskbar_window);
         assert!(fallback.show_main_window);
         assert!(taskbar_failure_preferences(&fallback).is_none());
+    }
+
+    #[test]
+    fn enabling_main_window_from_taskbar_only_keeps_taskbar_preference() {
+        // Tray left-click force-show must be allowed while the companion is still preferred
+        // (possibly broken). Preferencing main on must not require demoting the taskbar first.
+        let taskbar_only = DesktopPreferences {
+            show_taskbar_window: true,
+            show_main_window: false,
+            ..DesktopPreferences::default()
+        };
+        let shown = taskbar_only.with_option(DesktopOption::ShowMainWindow, true);
+        assert!(shown.show_main_window);
+        assert!(shown.show_taskbar_window);
+    }
+
+    #[test]
+    fn off_screen_seed_is_centered_when_no_work_area_intersects() {
+        let off_screen = PhysicalPosition::new(3300, 1920);
+        let primary = (
+            PhysicalPosition::new(0, 0),
+            PhysicalSize::new(2560u32, 1392u32),
+            PhysicalSize::new(360u32, 112u32),
+        );
+        let secondary = (
+            PhysicalPosition::new(2560, 0),
+            PhysicalSize::new(2560u32, 1392u32),
+            PhysicalSize::new(360u32, 112u32),
+        );
+        let restored = restored_main_window_position(
+            off_screen,
+            &[primary, secondary],
+            (primary.0, primary.1, primary.2),
+        );
+        assert_eq!(restored, PhysicalPosition::new((2560 - 360) / 2, (1392 - 112) / 2));
+        assert!(
+            window_work_area_intersection(restored, primary.2, (primary.0, primary.1)) > 0,
+            "recovered position must intersect the primary work area"
+        );
+    }
+
+    #[test]
+    fn partially_visible_multi_monitor_seed_is_clamped_not_recentered() {
+        // Mostly on the secondary display with a small primary overlap; choose the
+        // greater-intersection work area and clamp without recentering.
+        let seed = PhysicalPosition::new(2400, 800);
+        let primary = (
+            PhysicalPosition::new(0, 0),
+            PhysicalSize::new(2560u32, 1392u32),
+            PhysicalSize::new(360u32, 112u32),
+        );
+        let secondary = (
+            PhysicalPosition::new(2560, 0),
+            PhysicalSize::new(2560u32, 1392u32),
+            PhysicalSize::new(360u32, 112u32),
+        );
+        let restored =
+            restored_main_window_position(seed, &[primary, secondary], (primary.0, primary.1, primary.2));
+        assert_eq!(restored.x, 2560);
+        assert_eq!(restored.y, 800);
+        assert!(
+            window_work_area_intersection(restored, secondary.2, (secondary.0, secondary.1)) > 0
+        );
     }
 
     #[test]
