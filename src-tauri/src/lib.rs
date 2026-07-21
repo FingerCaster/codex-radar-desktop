@@ -14,10 +14,16 @@ pub fn run() {
         // Single-instance must register first so a second launch can recover the UI
         // when the tray/taskbar surfaces are stuck or the main window is hidden.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            let controller = app.state::<desktop::DesktopController>();
-            if let Err(error) = controller.force_show_main_window(app) {
-                eprintln!("[model-radar] second-instance force-show failed: {error}");
-            }
+            // The callback can run on Tauri's event-loop thread. A background
+            // preference transition may hold its gate while waiting for Wry,
+            // so never make the event loop wait for that gate here.
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let controller = app.state::<desktop::DesktopController>();
+                if let Err(error) = controller.force_show_main_window(&app) {
+                    eprintln!("[model-radar] second-instance force-show failed: {error}");
+                }
+            });
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
@@ -48,10 +54,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            WindowEvent::CloseRequested { api, .. } => {
+            WindowEvent::CloseRequested { api, .. }
+                if desktop::close_request_should_hide(window.label()) =>
+            {
                 api.prevent_close();
                 desktop::handle_close_requested(window);
             }
+            WindowEvent::CloseRequested { .. } => {}
             WindowEvent::Moved(_)
             | WindowEvent::Resized(_)
             | WindowEvent::ScaleFactorChanged { .. } => {

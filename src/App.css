@@ -377,8 +377,12 @@ button:focus-visible {
 }
 
 .taskbar-view {
+  min-width: 0;
+  min-height: 0;
   width: 168px;
+  max-width: 100%;
   height: 30px;
+  max-height: 100%;
   color: var(--text);
   background: transparent;
   overflow: hidden;
@@ -387,10 +391,12 @@ button:focus-visible {
 .taskbar-surface {
   display: grid;
   grid-template-rows: 12px 14px;
+  min-width: 0;
+  min-height: 0;
   width: 100%;
   height: 100%;
   margin: 0;
-  padding: 2px 6px;
+  padding: 2px 3px;
   overflow: hidden;
   color: var(--text);
   text-align: left;
@@ -412,10 +418,10 @@ button:focus-visible {
 
 .taskbar-primary-row {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) 34px 44px;
+  grid-template-columns: 10px minmax(0, 1fr) 34px 30px;
   align-items: center;
   min-width: 0;
-  gap: 3px;
+  gap: 2px;
   overflow: hidden;
 }
 
@@ -462,9 +468,10 @@ button:focus-visible {
 
 .taskbar-score-row {
   display: grid;
-  grid-template-columns: 17px 44px minmax(0, 1fr);
+  grid-template-columns: 17px minmax(0, 1fr) minmax(0, max-content);
   align-items: baseline;
   min-width: 0;
+  column-gap: 2px;
   color: var(--text-muted);
   font-family: var(--numeric-font);
   font-variant-numeric: tabular-nums;
@@ -487,6 +494,7 @@ button:focus-visible {
 
 .taskbar-tie {
   align-self: baseline;
+  justify-self: end;
   color: var(--warning);
   font-size: 9px;
   font-weight: 700;
@@ -522,6 +530,12 @@ button:focus-visible {
 .taskbar-view[data-state="booting"] .taskbar-score-value,
 .taskbar-view[data-state="unavailable"] .taskbar-score-value {
   color: var(--text-muted);
+}
+
+@media (max-height: 29px) {
+  .taskbar-surface {
+    padding-block: 0;
+  }
 }
 
 .detail-view {

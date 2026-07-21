@@ -79,9 +79,12 @@ desktop.radar-source.distributed -> 分布式
 
 - Windows creates one `taskbar` WebView as a real `Shell_TrayWnd` child. Its
   only size is exactly `168 x 30` logical pixels.
-- Convert taskbar CSS logical dimensions with the child WebView's
-  `window.scale_factor()`. Explorer's `GetDpiForWindow` is not the WebView CSS
-  scale and must not be used for this conversion.
+- Start taskbar CSS conversion from the child WebView's
+  `window.scale_factor()`. Reparenting under `Shell_TrayWnd` can leave that
+  value below the DPI Windows reports for the child HWND, so placement uses
+  `max(tauri_scale, GetDpiForWindow(child) / 96.0)`. A zero child-DPI result
+  falls back to the Tauri value. Never use the Explorer/taskbar HWND's DPI for
+  this conversion.
 - `win11_geometry` either returns the full requested physical size or fails.
   It must never clamp the child below its CSS viewport because the WebView will
   then crop content.
@@ -92,11 +95,12 @@ desktop.radar-source.distributed -> 分布式
   existing taskbar surface.
 - Start exactly one Windows layout monitor after desktop initialization. While
   `showTaskbarWindow` is true, it repeats blocker-aware placement every second.
-  Each tick **snapshots** preferences under the preference mutex, then **drops
-  the guard before** Wry/Win32 place/show work. On failure it re-locks only for
-  demotion commit. Holding the guard across placement deadlocks tray left-click
-  and menu actions that need the same lock while `scale_factor` waits on the
-  event loop.
+  Each tick **snapshots** preferences under the value mutex, then **drops the
+  guard before** Wry/Win32 place/show work. Before accepting the native result,
+  it takes the transition gate and re-reads the preference so neither an active
+  nor inactive stale snapshot can overwrite a user transition. Holding the
+  value guard across placement deadlocks tray/menu actions while
+  `scale_factor` waits on the event loop.
 - Compare the current child screen rectangle with the computed taskbar-relative
   target before `SetWindowPos`. Equal geometry is a no-op and must not raise the
   child in Z order every second.
@@ -130,12 +134,13 @@ desktop.radar-source.distributed -> 分布式
   placed companion screen rect. WebView2's `Chrome_RenderWidgetHostHWND` is
   out-of-process, so subclassing the Tauri HWND never sees real mouse clicks.
   Left-up in the rect → `show_main_details` / force-show; right-up → shared
-  context menu. Clear the hit rect when the companion is hidden.
+  context menu. The hook belongs to a dedicated message-loop thread and is
+  explicitly disabled whenever the projection is hidden; see section 8.
 - While `showTaskbarWindow` is true, each monitor tick reuses a healthy
-  companion when present; if the labeled window is missing or detached from
-  `Shell_TrayWnd`, rebuild it under the primary taskbar, place, show, and
-  require `taskbar_companion_is_healthy` (attached + visible). Failure of that
-  path triggers the same safety demotion as placement failure.
+  companion when present. A missing Explorer host, detached label, label-removal
+  wait, or host-generation change enters bounded recovery with the main window
+  exposed. Rebuild uses `destroy()` and a later tick; only fatal placement/input
+  failure or recovery timeout triggers safety demotion.
 - Any path that surfaces the main window for recovery (taskbar demotion,
   show-main, show-details, tray force-show) must ensure the outer rect intersects
   at least one monitor work area. Fully off-screen seeds use the same multi-monitor
@@ -183,9 +188,10 @@ desktop.radar-source.distributed -> 分布式
   pinned `tray-icon 0.24.1`, `None` does not clear an existing macOS title.
 - Transparent macOS windows require both `app.macOSPrivateApi: true` and the
   Tauri `macos-private-api` feature.
-- Menu toggles read, invert, apply, persist, and commit under the controller's
-  preference lock. This prevents rapid clicks from applying the same stale
-  prior value twice.
+- Menu toggles take the controller's `preference_transition` gate, snapshot the
+  value mutex, then release the value mutex before apply/persist/menu/native
+  work. The gate prevents rapid clicks from applying the same stale prior value
+  twice without carrying the value mutex across Wry/Win32.
 - The shared menu and main settings view contain one `开机自启` check backed by
   `DesktopPreferences.launchAtLogin`. Rust registers `tauri-plugin-autostart`
   before `DesktopController::new`; controller construction reads
@@ -199,11 +205,10 @@ desktop.radar-source.distributed -> 分布式
   preference. Any apply/verification/persist/menu failure restores the prior
   native registration and preference/menu state best-effort and emits no
   proposed value. Renderers never call the plugin or persist another copy.
-- Commands that can wait for native window/menu work while the Windows taskbar
-  monitor holds the preference guard use `#[tauri::command(async)]`. Tauri
-  blocking commands execute in the current invoke context; letting that
-  context wait for the preference lock can deadlock when the monitor holds it
-  while a Wry getter waits for the event loop. The option transaction itself
+- Commands and event-loop callbacks that may wait for the preference transition
+  gate or native window/menu work use async dispatch. A background transition
+  may hold the gate while a Wry getter waits for the event loop, so the event
+  loop must not synchronously wait for that same gate. The transaction itself
   remains synchronous and never carries a standard mutex guard across `await`.
 - The shared menu contains `雷达数据源` with exactly two independent check
   items displayed as one exclusive choice: `主站` and `分布式`. Menu sync always
@@ -239,12 +244,16 @@ desktop.radar-source.distributed -> 分布式
 | --- | --- |
 | Opacity outside 100/90/80/70/60 | Reject command; loaded value becomes 100 |
 | Both display projections disabled | Enable the other projection before commit |
-| Explorer/taskbar host unavailable | Keep tray/main recovery; return/log a desktop error |
+| Explorer/taskbar host unavailable | Enter `Recovering`, expose main, retry within the 10-second grace, then demote if still unavailable |
 | Requested taskbar geometry does not fit | Return `None`/error; never shrink the viewport |
+| Child HWND DPI exceeds the Tauri scale after reparenting | Use the child-DPI scale as the lower bound so `168 x 30` remains a complete CSS viewport |
+| Child HWND DPI query returns zero | Fall back to the valid Tauri scale; do not infer scale from the Explorer/taskbar HWND |
 | External blocker or task band changes with a free slot | Move to the new rightmost slot on the next monitor tick |
 | Runtime placement has no complete slot or a dead host | Hide companion, show main on-screen, persist `showTaskbarWindow: false`; manual re-enable retries |
-| Taskbar companion HWND missing or detached while preferred | Rebuild under `Shell_TrayWnd` once per tick; demote if rebuild/place/health fails |
+| Taskbar companion HWND missing or detached while preferred | Destroy once, wait for Manager label removal, rebuild on a later tick, and demote only on fatal error or grace timeout |
 | Taskbar create/place fails while applying taskbar-only visibility | Do not hide main; return error so the option transaction rolls back |
+| Hook lease expires or cursor moves without hook-event progress | Rearm on the dedicated hook thread; failure enters the ordinary safe demotion path |
+| Parent taskbar auto-hides while child retains `WS_VISIBLE` | Keep the child healthy; do not demote based on recursive ancestor visibility |
 | Main window fully outside every work area when shown | Clamp/center via restore rules and persist the recovered position |
 | Runtime target rectangle is unchanged | Skip `SetWindowPos` and retain current Z order |
 | Safety-demotion persistence/menu/event step fails | Keep the safe native/runtime projection and emit one aggregated warning; never restore the overlap |
@@ -299,8 +308,8 @@ desktop.radar-source.distributed -> 分布式
   placement fails and the main/tray path remains usable.
 - Bad: two toggle events arrive quickly; each observes the state committed by
   the previous event rather than the same stale snapshot.
-- Bad: a blocking settings command waits for the preference guard on the event
-  loop while the monitor owns that guard and waits on `window.scale_factor()`;
+- Bad: an event-loop callback waits for the transition gate while a worker owns
+  that gate and waits on `window.scale_factor()` from the same event loop;
   neither side can advance, so settings remains pending indefinitely.
 - Bad: two source selections arrive quickly; without the async transition gate,
   the last service value and last persisted value can cross. The serialized
@@ -314,6 +323,8 @@ desktop.radar-source.distributed -> 分布式
 - Geometry tests at 100%, 125%, 150%, and 200% assert exact requested width and
   height, bounded coordinates, blocker avoidance, rightmost-slot selection,
   and rejection when no complete slot exists.
+- Scale-selection tests assert `(1.25, 144) -> 1.5`, `(1.5, 120) -> 1.5`,
+  `(1.25, 0) -> 1.25`, and rejection of invalid Tauri scale values.
 - Runtime layout tests assert a later blocker moves an existing companion left,
   unchanged screen geometry is detected as a no-op, the monitor is claimed
   once, and a taskbar-only failure restores `showMainWindow`.
@@ -350,23 +361,31 @@ desktop.radar-source.distributed -> 分布式
 Wrong:
 
 ```rust
-let scale = f64::from(GetDpiForWindow(taskbar)) / 96.0;
+let scale = window.scale_factor()?;
 let height = requested_height.clamp(1, taskbar_height - 4);
 ```
 
-This mixes Explorer DPI with WebView CSS scaling and silently crops content.
+This trusts a scale value that may be stale after reparenting and then silently
+crops content to make the resulting physical viewport fit.
 
 Correct:
 
 ```rust
-let scale = window.scale_factor()?;
+let tauri_scale = window.scale_factor()?;
+let child_dpi = GetDpiForWindow(child_hwnd);
+let scale = if child_dpi == 0 {
+    tauri_scale
+} else {
+    tauri_scale.max(f64::from(child_dpi) / 96.0)
+};
 let height = (logical_height * scale).round();
 if height > f64::from(taskbar_height) {
     return None;
 }
 ```
 
-Use the rendering window's scale and preserve the complete viewport.
+Use only the rendering child HWND as the native DPI fallback and preserve the
+complete viewport. Explorer's parent HWND is not the renderer scale source.
 
 Wrong:
 
@@ -457,3 +476,116 @@ pub fn set_desktop_option(...) -> Result<DesktopPreferences, String> {
 
 Async command dispatch frees the event loop while preserving the existing
 synchronous transaction and lock ordering inside `set_option`.
+
+## 8. Windows Lifecycle Addendum
+
+This addendum records the recovery contracts that must remain true when changing
+the Windows taskbar companion or its monitor. It is intentionally executable:
+the named states and helper boundaries are the seams used by unit tests.
+
+### Hook ownership and lease
+
+- `TaskbarInputController::ensure_enabled`, `disable`, and `shutdown` are the
+  only lifecycle entry points. The `WH_MOUSE_LL` handle belongs to a dedicated
+  thread that has a `GetMessageW` loop; the Tauri event-loop thread never owns
+  the hook. Construction is idle; the first enable lazily starts the worker.
+- `taskbar_mouse_hook_proc` may only read the atomic hit rectangle, classify a
+  left/right-up action, increment the event sequence, post a bounded wake
+  message, and call `CallNextHookEx`. It must not lock application state, call
+  Wry/Tauri APIs, or spawn an async task.
+- Hook control commands use a bounded queue and an acknowledgement timeout.
+  Enable, disable, rearm, and shutdown each report completion; a failed
+  acknowledgement or installation is a projection failure, never a retained
+  `installed` health bit.
+- One controller lifecycle gate serializes enable, disable, rearm, and shutdown
+  across the lease/runtime locks. A disable cannot race a stale monitor enable
+  into starting a replacement worker after the projection was turned off.
+- A successful hook is leased for 30 seconds. A monitor sample that sees cursor
+  movement without a corresponding hook-event sequence increment requests an
+  early rearm. Turning off `showTaskbarWindow` clears the hit rectangle and
+  acknowledges explicit unhook/bridge cleanup and terminates the worker; a
+  later enable starts a fresh worker. `RunEvent::ExitRequested` calls
+  `shutdown`, with `Drop` providing only bounded best-effort cleanup.
+
+### Detached rebuild and recovery grace
+
+- `TaskbarWindowLifecycle::ensure` returns `Ready`, `Recovering(reason)`, or
+  `Fatal(error)`. A detached/dead canonical `taskbar` label is repaired with
+  `WebviewWindow::destroy()`, never close-to-hide `close()`. The destroy token
+  is claimed once; no same-label build is attempted until the Manager no longer
+  reports the old label.
+- Missing `Shell_TrayWnd`, label removal, an in-flight build, and a host-generation
+  change are transient `Recovering` reasons. A build must re-read and validate
+  the host after creation; a stale result is destroyed and remains recovering.
+- `TaskbarRecoveryState` uses a monotonic 10-second grace period. During grace,
+  the main window is force-shown/clamped and the persisted taskbar preference is
+  retained. Only a healthy `Ready` result may hide the temporarily exposed main
+  window for taskbar-only mode. Timeout or deterministic create/place/health
+  failure first restores the native main window, then commits the safe preference
+  (`showTaskbarWindow=false`, `showMainWindow=true`).
+
+### Preference lock and monitor ordering
+
+- `preference_transition` serializes every full-preference writer, including
+  option/opacity/source changes, emergency recovery, and monitor demotion. The
+  preference-value mutex protects only snapshots and commits; it must be
+  released before any Wry getter/setter, window creation/destruction, placement,
+  or show/hide call.
+- A monitor tick snapshots the preference, performs native work without the
+  value mutex, then re-reads the latest preference before accepting the result.
+  Both stale directions are guarded: an old inactive tick cannot enable a hook,
+  and an old active tick cannot resurrect projection after the user disabled it.
+  Normal placement also remains outside the transition gate.
+- Tray toggle decisions use confirmed native main visibility when available.
+  `Some(false)` or an unknown native query always chooses force-show, even when
+  the stored preference says `showMainWindow=true`.
+
+### Health and close policy
+
+- Companion health requires a live HWND, attachment to the current
+  `Shell_TrayWnd`, and the child HWND's own `WS_VISIBLE` style. Ancestor
+  visibility is not a health signal because Windows auto-hide may hide the parent
+  taskbar while the child remains correctly projected.
+- `CloseRequested` close-to-hide handling is limited to the managed `main` and
+  `taskbar` labels. Internal rebuild destruction bypasses that handler and must
+  not be converted into a preference toggle or prevented close.
+
+### Embedded DPI and viewport size
+
+- Placement reads `window.scale_factor()` before native geometry work, then
+  reads `GetDpiForWindow` from that same child HWND. The effective scale is the
+  greater valid value; a zero child-DPI result uses the Tauri scale unchanged.
+- Never read the DPI from `Shell_TrayWnd`, `TrayNotifyWnd`, or another Explorer
+  descendant. `win11_geometry` still receives one resolved scale and either
+  returns the complete requested size or fails without clamping.
+
+### Required regression assertions
+
+- Pure mouse mapping covers left/right action dispatch and half-open hit-rect
+  boundaries; hook tests cover bounded control, lease expiry, and cursor/event
+  heartbeat rearm decisions.
+- Lifecycle tests assert single destroy, label-removal wait, missing/changing
+  host recovery, stale build rejection, grace exposure, timeout demotion, and
+  successful completion before re-hide.
+- Desktop tests assert native/preference drift chooses force-show, taskbar ensure
+  failure preserves a visible main window, both stale monitor directions are
+  rejected, and user close-to-hide is distinct from internal destroy.
+
+### Wrong vs correct lifecycle ordering
+
+Wrong:
+
+```rust
+let _ = window.close();
+WebviewWindowBuilder::new(app, "taskbar", url).build()?;
+```
+
+Correct:
+
+```rust
+window.destroy()?;
+return TaskbarWindowOutcome::Recovering(
+    TaskbarRecoveryReason::DestroyRequested,
+);
+// A later monitor tick builds only after Manager unregisters `taskbar`.
+```

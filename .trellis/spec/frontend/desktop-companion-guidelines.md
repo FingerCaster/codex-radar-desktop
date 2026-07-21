@@ -77,6 +77,19 @@ before radar hydration.
 - The Windows taskbar surface is exactly `168 x 30` CSS pixels. Row one shows
   model/effort/status and row two shows IQ/value/ties. Row heights plus vertical
   padding total exactly 30px, and the surface stays transparent and borderless.
+  The root also uses `max-width: 100%` and `max-height: 100%`: native child
+  embedding and DPI conversion can expose a client viewport narrower than the
+  nominal size, and the renderer must shrink inside it instead of clipping its
+  rightmost status beneath the next taskbar component.
+- The first taskbar row uses `10px minmax(0, 1fr) 34px 30px` with a `2px`
+  gap and `3px` horizontal surface padding. Only the model track absorbs width;
+  the ordinary three-character status and effort remain visible. The second
+  row uses `17px minmax(0, 1fr) minmax(0, max-content)`, so a long IQ value
+  ellipsizes before a present tie marker is displaced.
+- When the embedded CSS viewport is below 30px high, remove vertical surface
+  padding so the fixed `12px + 14px` rows still fit down to 26px. This is a
+  renderer fallback for transient/native mismatch, not permission to shrink
+  the requested native viewport.
 - `.taskbar-effort` uses `10px`, weight `700`, and the existing `12px` line
   height inside its fixed `34px` track. Longer effort values ellipsize; the
   stronger `max` label must not change either row or native viewport geometry.
@@ -114,6 +127,7 @@ before radar hydration.
 | Taskbar starts with no Rust snapshot | Show bounded unavailable/loading projection; do not refresh |
 | Snapshot event is valid | Update projection and cache through the radar reducer |
 | Fixed taskbar projection | Show model/effort/status above IQ/value/ties within 168px |
+| Embedded client width is below 168 CSS pixels | Cap the root to the parent, preserve fixed metadata tracks, and ellipsize only shrinkable model/score content |
 | Known Sol/Terra/Luna stable identifier | Resolve its matching local PNG without a network request |
 | GPT-5.5, GPT-5.4, or unknown stable identifier | Resolve the Codex SVG even if display text contains a different family token |
 | Position locked | Render no drag-region attributes |
@@ -133,6 +147,9 @@ before radar hydration.
   an intermediate main snapshot or a second polling loop.
 - Good: a tied leader renders `+N` without changing taskbar dimensions and the
   accessible name includes the full tie count.
+- Good: a high-DPI embedded client narrower than 168 CSS pixels keeps `max`,
+  `已同步`, IQ, and a present tie marker inside the surface while the model and
+  long score ellipsize.
 - Good: `gpt-5.6-terra` renders the local earth artwork beside its existing
   accessible model text, while `gpt-5.5-codex-max` renders the Codex mark.
 - Good: start-at-login toggled in settings remains pending until Rust verifies
@@ -147,6 +164,8 @@ before radar hydration.
   look detached from the system taskbar and consumes layout pixels.
 - Bad: adding an optional wider mode can cover task buttons or another embedded
   monitor and is not part of the desktop preference contract.
+- Bad: keeping an unconditional 168px child root when its parent client area is
+  narrower hides the fixed status track under the adjacent taskbar component.
 - Bad: computing preset coordinates from `window.screen` in React can select the
   wrong monitor work area and bypass native compact-position persistence.
 - Bad: substring matching `sol`, `terra`, or `luna` inside every model string
@@ -184,6 +203,10 @@ before radar hydration.
 - Taskbar component tests assert details click, context-menu callback, effort,
   freshness, tie marker, accessible name, and that the polite status live
   region is outside the primary button.
+- Taskbar layout tests load the production stylesheet and assert the bounded
+  root plus exact shrinkable/fixed grid tracks using long model, effort, status,
+  score, and tie values; full content remains available through titles and the
+  accessible button name.
 - Window-view tests assert all drag markers disappear when locked.
 - Run frontend lint, typecheck, tests, and production build; run Rust checks
   whenever command/event or native geometry behavior changes.
@@ -260,3 +283,22 @@ return MODEL_MARK_BY_IDENTIFIER[model.trim().toLowerCase()] ?? "codex";
 
 Stable model identifiers take priority. A tightly bounded display-name fallback
 exists only for the taskbar projection when no identifier is available.
+
+Wrong:
+
+```css
+.taskbar-view { width: 168px; }
+.taskbar-primary-row { grid-template-columns: 10px 1fr 34px 44px; }
+```
+
+Correct:
+
+```css
+.taskbar-view { width: 168px; max-width: 100%; }
+.taskbar-primary-row {
+  grid-template-columns: 10px minmax(0, 1fr) 34px 30px;
+}
+```
+
+The nominal native contract stays fixed while the renderer remains bounded by
+the actual embedded client area.

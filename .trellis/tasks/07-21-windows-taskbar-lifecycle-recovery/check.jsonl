@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"检查变更是否遵循 backend 规范路由。"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"检查平台 Win32 与 controller 状态职责没有错层。"}
+{"file":".trellis/spec/backend/desktop-companion-contract.md","reason":"逐项核对 taskbar 生命周期、偏好和恢复合同。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"执行完整 Rust fmt、clippy、tests 并检查新增测试覆盖。"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"检查后台循环和 hook 故障日志不会刷屏或泄漏数据。"}
+{"file":".trellis/tasks/07-21-windows-taskbar-lifecycle-recovery/research/windows-hook-lifecycle.md","reason":"审查 hook 实现是否满足官方消息线程、非阻塞 callback 和卸载约束。"}
+{"file":".trellis/tasks/07-21-windows-taskbar-lifecycle-recovery/research/tauri-taskbar-rebuild.md","reason":"审查 destroy/build 是否尊重 Manager label 清理时序和恢复宽限期。"}

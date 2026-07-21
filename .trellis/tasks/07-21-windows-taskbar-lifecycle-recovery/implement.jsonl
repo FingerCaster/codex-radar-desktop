@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/index.md","reason":"定位 Rust/Tauri backend 规范及 desktop companion 前置阅读要求。"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"保持 lib.rs、desktop.rs 与 desktop/windows.rs 的职责边界。"}
+{"file":".trellis/spec/backend/desktop-companion-contract.md","reason":"实现窗口、taskbar、偏好事务、线程亲和和恢复行为的现有合同。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"遵循 Rust 验证命令并补齐 desktop 生命周期测试清单。"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"hook/rebuild 失败只输出有上下文且限频的 stderr 诊断。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"新增状态机、动作和常量前复用现有 helper，并集中派生状态。"}
+{"file":".trellis/tasks/07-21-windows-taskbar-lifecycle-recovery/research/windows-hook-lifecycle.md","reason":"遵循 WH_MOUSE_LL 官方线程、卸载、租约轮换和退出同步研究。"}
+{"file":".trellis/tasks/07-21-windows-taskbar-lifecycle-recovery/research/tauri-taskbar-rebuild.md","reason":"遵循 Tauri 2.11.5 destroy/Manager label 时序与非阻塞重建状态机研究。"}

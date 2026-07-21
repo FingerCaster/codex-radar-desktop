@@ -49,8 +49,10 @@ When changing state transitions, assert status, snapshot identity, and error kin
 | `.settings-segmented` | stable `30px` height; two source or five opacity tracks |
 | `.settings-option` | stable minimum `40px` row with a fixed checkbox track |
 | `.detail-content` | rows `96px 84px minmax(0, 1fr) 60px` |
-| `.taskbar-view` | fixed `168px x 30px` |
-| `.taskbar-surface` | rows `12px 14px` plus `2px` vertical padding; transparent and borderless |
+| `.taskbar-view` | nominal `168px x 30px`, capped by parent `max-width/max-height: 100%` |
+| `.taskbar-surface` | rows `12px 14px`, `2px 3px` padding; below 30px viewport height use `0 3px`; transparent and borderless |
+| `.taskbar-primary-row` | `10px minmax(0, 1fr) 34px 30px`, `2px` gap |
+| `.taskbar-score-row` | `17px minmax(0, 1fr) minmax(0, max-content)` |
 | `.metric-grid` | four equal columns |
 | `.ranking-list` | exactly five equal rows |
 | `.ranking-row` | columns `27px minmax(0, 1fr) 43px 54px` |
@@ -68,8 +70,11 @@ At 125%, 150%, and 200% display scaling, verify that:
 - long model names, attribution text, and metric values ellipsize rather than resizing controls;
 - `button:focus-visible` remains visible;
 - dark-mode colors and reduced-motion behavior still apply.
-- the taskbar child remains two complete rows, with no native size clamp below
-  its CSS viewport and no opaque card background.
+- the taskbar child requests two complete rows with no intentional native clamp
+  below its CSS viewport and remains free of opaque card backgrounds.
+- if the embedded client viewport is narrower than the nominal 168 CSS pixels,
+  the root caps to the parent; model/score tracks ellipsize before fixed
+  effort/status or a present tie marker is clipped.
 
 The stylesheet follows `prefers-color-scheme: dark` and `prefers-reduced-motion: reduce`; the latter slows, rather than removes, the refresh spinner.
 

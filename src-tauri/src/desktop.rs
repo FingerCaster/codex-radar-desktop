@@ -7,6 +7,8 @@ use std::{
 
 #[cfg(windows)]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(windows)]
+use std::time::Instant;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tauri::{
@@ -38,6 +40,8 @@ const MAIN_POSITION_SAVE_DELAY: Duration = Duration::from_millis(200);
 const TASKBAR_SIZE: (f64, f64) = (168.0, 30.0);
 #[cfg(windows)]
 const TASKBAR_MONITOR_INTERVAL: Duration = Duration::from_secs(1);
+#[cfg(windows)]
+const TASKBAR_RECOVERY_GRACE: Duration = Duration::from_secs(10);
 const VALID_OPACITY: [u8; 5] = [100, 90, 80, 70, 60];
 
 const MENU_ALWAYS_ON_TOP: &str = "desktop.always-on-top";
@@ -63,6 +67,12 @@ const MENU_QUIT: &str = "desktop.quit";
 enum TrayLeftClickBehavior {
     ToggleMain,
     ShowDetails,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MainWindowToggleAction {
+    Show,
+    Hide,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -173,15 +183,143 @@ fn tray_left_click_behavior(is_macos: bool) -> TrayLeftClickBehavior {
     }
 }
 
+fn main_window_toggle_action(native_visible: Option<bool>) -> MainWindowToggleAction {
+    match native_visible {
+        Some(true) => MainWindowToggleAction::Hide,
+        Some(false) | None => MainWindowToggleAction::Show,
+    }
+}
+
+pub(crate) fn close_request_should_hide(label: &str) -> bool {
+    matches!(label, MAIN_WINDOW_LABEL | TASKBAR_WINDOW_LABEL)
+}
+
+fn apply_main_window_visibility_steps<Show, EnsureTaskbar, Recover, Hide>(
+    show_main: bool,
+    show_taskbar: bool,
+    mut show: Show,
+    mut ensure_taskbar: EnsureTaskbar,
+    mut recover: Recover,
+    mut hide: Hide,
+) -> Result<(), String>
+where
+    Show: FnMut() -> Result<(), String>,
+    EnsureTaskbar: FnMut() -> Result<(), String>,
+    Recover: FnMut(),
+    Hide: FnMut() -> Result<(), String>,
+{
+    if show_main {
+        return show();
+    }
+    if show_taskbar {
+        if let Err(error) = ensure_taskbar() {
+            recover();
+            return Err(error);
+        }
+    }
+    hide()
+}
+
 #[cfg(windows)]
 #[derive(Debug, PartialEq, Eq)]
 enum TaskbarMonitorOutcome {
     Inactive,
     Placed,
+    Recovering,
     Disabled {
         placement_error: String,
         recovery_errors: Vec<String>,
     },
+}
+
+#[cfg(windows)]
+#[derive(Debug, PartialEq, Eq)]
+enum TaskbarProjectionStatus {
+    Ready,
+    Recovering(String),
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TaskbarTickPreferenceDecision {
+    StayInactive,
+    RetryActive,
+    DisableStaleActive,
+    AcceptActive,
+}
+
+#[cfg(windows)]
+fn taskbar_tick_preference_decision(
+    snapshot_active: bool,
+    latest_active: bool,
+) -> TaskbarTickPreferenceDecision {
+    match (snapshot_active, latest_active) {
+        (false, false) => TaskbarTickPreferenceDecision::StayInactive,
+        (false, true) => TaskbarTickPreferenceDecision::RetryActive,
+        (true, false) => TaskbarTickPreferenceDecision::DisableStaleActive,
+        (true, true) => TaskbarTickPreferenceDecision::AcceptActive,
+    }
+}
+
+#[cfg(windows)]
+#[derive(Debug, PartialEq, Eq)]
+struct TaskbarRecoveryObservation {
+    generation: u64,
+    first_observation: bool,
+    should_expose_main: bool,
+    timed_out: bool,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Default)]
+struct TaskbarRecoveryState {
+    generation: u64,
+    started_at: Option<Instant>,
+    main_exposed: bool,
+}
+
+#[cfg(windows)]
+impl TaskbarRecoveryState {
+    fn observe(&mut self, now: Instant) -> TaskbarRecoveryObservation {
+        let first_observation = self.started_at.is_none();
+        if first_observation {
+            self.generation = self.generation.wrapping_add(1);
+            self.started_at = Some(now);
+        }
+        let started_at = self.started_at.expect("recovery start must be recorded");
+        TaskbarRecoveryObservation {
+            generation: self.generation,
+            first_observation,
+            should_expose_main: !self.main_exposed,
+            timed_out: now.saturating_duration_since(started_at) >= TASKBAR_RECOVERY_GRACE,
+        }
+    }
+
+    fn mark_main_exposed(&mut self, generation: u64) {
+        if self.generation == generation && self.started_at.is_some() {
+            self.main_exposed = true;
+        }
+    }
+
+    fn complete(&mut self) -> bool {
+        let should_restore_preference = self.started_at.is_some() && self.main_exposed;
+        self.started_at = None;
+        self.main_exposed = false;
+        should_restore_preference
+    }
+}
+
+#[cfg(windows)]
+fn observe_taskbar_recovery(
+    state: &mut TaskbarRecoveryState,
+    now: Instant,
+    main_exposed: bool,
+) -> TaskbarRecoveryObservation {
+    let observation = state.observe(now);
+    if main_exposed {
+        state.mark_main_exposed(observation.generation);
+    }
+    observation
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -516,6 +654,7 @@ impl DesktopMenu {
 
 pub struct DesktopController {
     preferences: Mutex<DesktopPreferences>,
+    preference_transition: Mutex<()>,
     projection: Mutex<CompanionProjection>,
     main_expanded: Mutex<bool>,
     main_position_state: Mutex<MainPositionSaveState>,
@@ -526,6 +665,12 @@ pub struct DesktopController {
     main_position_path: PathBuf,
     #[cfg(windows)]
     taskbar_monitor_started: AtomicBool,
+    #[cfg(windows)]
+    taskbar_input: windows::TaskbarInputController,
+    #[cfg(windows)]
+    taskbar_window_lifecycle: windows::TaskbarWindowLifecycle,
+    #[cfg(windows)]
+    taskbar_recovery: Mutex<TaskbarRecoveryState>,
 }
 
 impl DesktopController {
@@ -549,6 +694,7 @@ impl DesktopController {
 
         Ok(Self {
             preferences: Mutex::new(preferences),
+            preference_transition: Mutex::new(()),
             projection: Mutex::new(CompanionProjection::default()),
             main_expanded: Mutex::new(false),
             main_position_state: Mutex::new(MainPositionSaveState::new(main_position)),
@@ -559,6 +705,12 @@ impl DesktopController {
             main_position_path,
             #[cfg(windows)]
             taskbar_monitor_started: AtomicBool::new(false),
+            #[cfg(windows)]
+            taskbar_input: windows::TaskbarInputController::new(app)?,
+            #[cfg(windows)]
+            taskbar_window_lifecycle: windows::TaskbarWindowLifecycle::default(),
+            #[cfg(windows)]
+            taskbar_recovery: Mutex::new(TaskbarRecoveryState::default()),
         })
     }
 
@@ -567,7 +719,8 @@ impl DesktopController {
             eprintln!("[model-radar] main window position restore failed: {error}");
         }
         self.set_main_position_ready()?;
-        let mut preferences = self.lock_preferences()?;
+        let _transition = self.lock_preference_transition()?;
+        let mut preferences = self.preferences()?;
         self.apply_always_on_top(app, preferences.always_on_top)?;
         self.apply_click_through(app, preferences.click_through)?;
 
@@ -582,7 +735,7 @@ impl DesktopController {
         self.sync_companion_tray(app, &preferences)?;
         persist_preferences(&self.preferences_path, &preferences)?;
         let snapshot = preferences.clone();
-        drop(preferences);
+        *self.lock_preferences()? = snapshot.clone();
         let _ = app.emit(PREFERENCES_UPDATED_EVENT, &snapshot);
         #[cfg(windows)]
         self.start_taskbar_monitor(app.clone());
@@ -606,7 +759,17 @@ impl DesktopController {
         option: DesktopOption,
         enabled: bool,
     ) -> Result<DesktopPreferences, String> {
-        let current = self.lock_preferences()?;
+        let _transition = self.lock_preference_transition()?;
+        self.set_option_during_transition(app, option, enabled)
+    }
+
+    fn set_option_during_transition(
+        &self,
+        app: &AppHandle,
+        option: DesktopOption,
+        enabled: bool,
+    ) -> Result<DesktopPreferences, String> {
+        let current = self.preferences()?;
         let next = current.clone().with_option(option, enabled);
         self.commit_option(app, current, option, next)
     }
@@ -616,7 +779,8 @@ impl DesktopController {
         app: &AppHandle,
         option: DesktopOption,
     ) -> Result<DesktopPreferences, String> {
-        let current = self.lock_preferences()?;
+        let _transition = self.lock_preference_transition()?;
+        let current = self.preferences()?;
         let enabled = !option.enabled(&current);
         let next = current.clone().with_option(option, enabled);
         self.commit_option(app, current, option, next)
@@ -625,11 +789,11 @@ impl DesktopController {
     fn commit_option(
         &self,
         app: &AppHandle,
-        mut current: MutexGuard<'_, DesktopPreferences>,
+        current: DesktopPreferences,
         option: DesktopOption,
         next: DesktopPreferences,
     ) -> Result<DesktopPreferences, String> {
-        let previous = current.clone();
+        let previous = current;
         if next == previous {
             self.menu.sync(&previous)?;
             return Ok(previous);
@@ -653,8 +817,7 @@ impl DesktopController {
             return Err(error);
         }
 
-        *current = next.clone();
-        drop(current);
+        *self.lock_preferences()? = next.clone();
         let _ = app.emit(PREFERENCES_UPDATED_EVENT, &next);
         Ok(next)
     }
@@ -670,8 +833,8 @@ impl DesktopController {
             ));
         }
 
-        let mut current = self.lock_preferences()?;
-        let previous = current.clone();
+        let _transition = self.lock_preference_transition()?;
+        let previous = self.preferences()?;
         if previous.opacity_percent == opacity_percent {
             self.menu.sync(&previous)?;
             return Ok(previous);
@@ -685,15 +848,14 @@ impl DesktopController {
             let _ = self.menu.sync(&previous);
             return Err(error);
         }
-        *current = next.clone();
-        drop(current);
+        *self.lock_preferences()? = next.clone();
         let _ = app.emit(PREFERENCES_UPDATED_EVENT, &next);
         Ok(next)
     }
 
     fn commit_radar_source(&self, source: RadarSource) -> Result<DesktopPreferences, String> {
-        let mut current = self.lock_preferences()?;
-        let previous = current.clone();
+        let _transition = self.lock_preference_transition()?;
+        let previous = self.preferences()?;
         let next = previous.clone().with_radar_source(source);
         if next == previous {
             self.menu.sync(&previous)?;
@@ -709,7 +871,7 @@ impl DesktopController {
             let _ = self.menu.sync(&previous);
             return Err(error);
         }
-        *current = next.clone();
+        *self.lock_preferences()? = next.clone();
         Ok(next)
     }
 
@@ -750,28 +912,55 @@ impl DesktopController {
     }
 
     pub fn toggle_main_window(&self, app: &AppHandle) -> Result<DesktopPreferences, String> {
-        let current = self.preferences()?;
-        if current.show_main_window {
-            self.set_option(app, DesktopOption::ShowMainWindow, false)
-        } else {
-            // Showing must never depend on a healthy taskbar companion; tray left-click
-            // is the last recovery surface when the companion is already broken.
-            self.force_show_main_window(app)
+        let (action, result) = {
+            let _transition = self.lock_preference_transition()?;
+            let native_visible = app
+                .get_webview_window(MAIN_WINDOW_LABEL)
+                .and_then(|window| window.is_visible().ok());
+            let action = main_window_toggle_action(native_visible);
+            let result = match action {
+                MainWindowToggleAction::Hide => {
+                    self.set_option_during_transition(app, DesktopOption::ShowMainWindow, false)
+                }
+                MainWindowToggleAction::Show => self.force_show_main_window_during_transition(app),
+            };
+            (action, result)
+        };
+        match action {
+            MainWindowToggleAction::Hide => result,
+            MainWindowToggleAction::Show => self.finish_force_show(app, result),
         }
     }
 
     /// Force the main window on-screen and persist `showMainWindow: true`.
     /// Taskbar health is best-effort and must not block tray recovery.
     pub fn force_show_main_window(&self, app: &AppHandle) -> Result<DesktopPreferences, String> {
-        match self.set_option(app, DesktopOption::ShowMainWindow, true) {
-            Ok(preferences) => {
-                if let Err(error) = self.recover_main_window_for_safety(app) {
-                    eprintln!(
-                        "[model-radar] main recovery after force-show had warnings: {error}"
-                    );
-                }
-                Ok(preferences)
-            }
+        let result = {
+            let _transition = self.lock_preference_transition()?;
+            self.force_show_main_window_during_transition(app)
+        };
+        self.finish_force_show(app, result)
+    }
+
+    fn force_show_main_window_during_transition(
+        &self,
+        app: &AppHandle,
+    ) -> Result<DesktopPreferences, String> {
+        let preferences =
+            self.set_option_during_transition(app, DesktopOption::ShowMainWindow, true)?;
+        if let Err(error) = self.recover_main_window_for_safety(app) {
+            eprintln!("[model-radar] main recovery after force-show had warnings: {error}");
+        }
+        Ok(preferences)
+    }
+
+    fn finish_force_show(
+        &self,
+        app: &AppHandle,
+        result: Result<DesktopPreferences, String>,
+    ) -> Result<DesktopPreferences, String> {
+        match result {
+            Ok(preferences) => Ok(preferences),
             Err(error) => {
                 // Preference transaction failed (often a dead taskbar path). Still try to
                 // surface the native window so the user is not stuck with only a tray icon.
@@ -790,12 +979,13 @@ impl DesktopController {
 
     /// Last-resort native show without requiring a successful preference apply.
     fn emergency_show_main_window(&self, app: &AppHandle) -> Result<(), String> {
+        let _transition = self.lock_preference_transition()?;
         self.recover_main_window_for_safety(app)?;
 
         // Best-effort: persist showMainWindow=true so the next tray click / menu
         // agrees with the visible main window. Leave taskbar preference alone;
         // the monitor demotes a broken companion independently.
-        let mut current = self.lock_preferences()?;
+        let current = self.preferences()?;
         if current.show_main_window {
             return Ok(());
         }
@@ -807,8 +997,7 @@ impl DesktopController {
             let _ = self.menu.sync(&current);
             return Err(error);
         }
-        *current = next.clone();
-        drop(current);
+        *self.lock_preferences()? = next.clone();
         let _ = app.emit(PREFERENCES_UPDATED_EVENT, &next);
         Ok(())
     }
@@ -1106,7 +1295,11 @@ impl DesktopController {
                 tokio::time::sleep(TASKBAR_MONITOR_INTERVAL).await;
                 let controller = app.state::<DesktopController>();
                 match controller.monitor_taskbar_once(&app) {
-                    Ok(TaskbarMonitorOutcome::Inactive | TaskbarMonitorOutcome::Placed) => {
+                    Ok(
+                        TaskbarMonitorOutcome::Inactive
+                        | TaskbarMonitorOutcome::Placed
+                        | TaskbarMonitorOutcome::Recovering,
+                    ) => {
                         failure_reported = false;
                     }
                     Ok(TaskbarMonitorOutcome::Disabled {
@@ -1142,24 +1335,164 @@ impl DesktopController {
     fn monitor_taskbar_once(&self, app: &AppHandle) -> Result<TaskbarMonitorOutcome, String> {
         // Never hold the preference mutex across Wry/Win32 placement work: tray left-click
         // and menu actions need that lock, and scale_factor/show wait on the event loop.
-        let snapshot = {
-            let current = self.lock_preferences()?;
-            if !current.show_taskbar_window {
-                return Ok(TaskbarMonitorOutcome::Inactive);
-            }
-            current.clone()
-        };
+        let snapshot = self.preferences()?;
+        if !snapshot.show_taskbar_window {
+            return self.finish_inactive_taskbar_tick(app);
+        }
 
         match self.ensure_taskbar_projection(app, &snapshot) {
-            Ok(()) => Ok(TaskbarMonitorOutcome::Placed),
-            Err(placement_error) => {
-                let current = self.lock_preferences()?;
-                if !current.show_taskbar_window {
-                    return Ok(TaskbarMonitorOutcome::Inactive);
+            Ok(TaskbarProjectionStatus::Ready) => self.finish_ready_taskbar_tick(app),
+            Ok(TaskbarProjectionStatus::Recovering(reason)) => {
+                self.continue_taskbar_recovery(app, reason)
+            }
+            Err(placement_error) => self.commit_taskbar_monitor_failure(app, placement_error),
+        }
+    }
+
+    #[cfg(windows)]
+    fn continue_taskbar_recovery(
+        &self,
+        app: &AppHandle,
+        reason: String,
+    ) -> Result<TaskbarMonitorOutcome, String> {
+        let observation = {
+            let mut recovery = self.lock_taskbar_recovery()?;
+            observe_taskbar_recovery(&mut recovery, Instant::now(), false)
+        };
+        if observation.should_expose_main {
+            let recovery_result = {
+                let _transition = self.lock_preference_transition()?;
+                self.recover_main_window_for_safety(app)
+            };
+            match recovery_result {
+                Ok(()) => self
+                    .lock_taskbar_recovery()?
+                    .mark_main_exposed(observation.generation),
+                Err(error) if !observation.timed_out => {
+                    return Err(format!(
+                        "taskbar companion is rebuilding ({reason}); temporary main recovery failed: {error}"
+                    ));
                 }
-                Ok(self.commit_taskbar_monitor_failure(app, current, placement_error))
+                Err(_) => {}
             }
         }
+
+        if observation.timed_out {
+            self.commit_taskbar_monitor_failure(
+                app,
+                format!(
+                    "taskbar companion did not recover within {}s ({reason})",
+                    TASKBAR_RECOVERY_GRACE.as_secs()
+                ),
+            )
+        } else {
+            Ok(TaskbarMonitorOutcome::Recovering)
+        }
+    }
+
+    #[cfg(windows)]
+    fn finish_inactive_taskbar_tick(
+        &self,
+        app: &AppHandle,
+    ) -> Result<TaskbarMonitorOutcome, String> {
+        let _transition = self.lock_preference_transition()?;
+        let latest = self.preferences()?;
+        match taskbar_tick_preference_decision(false, latest.show_taskbar_window) {
+            TaskbarTickPreferenceDecision::StayInactive => {
+                self.disable_taskbar_projection(app)?;
+                Ok(TaskbarMonitorOutcome::Inactive)
+            }
+            TaskbarTickPreferenceDecision::RetryActive => {
+                // A user transition enabled the projection after this tick's
+                // snapshot. It owns the final native state; retry next tick.
+                Ok(TaskbarMonitorOutcome::Recovering)
+            }
+            _ => unreachable!("inactive snapshot has only two decisions"),
+        }
+    }
+
+    #[cfg(windows)]
+    fn finish_ready_taskbar_tick(&self, app: &AppHandle) -> Result<TaskbarMonitorOutcome, String> {
+        let _transition = self.lock_preference_transition()?;
+        let latest = self.preferences()?;
+        match taskbar_tick_preference_decision(true, latest.show_taskbar_window) {
+            TaskbarTickPreferenceDecision::DisableStaleActive => {
+                self.disable_taskbar_projection(app)?;
+                return Ok(TaskbarMonitorOutcome::Inactive);
+            }
+            TaskbarTickPreferenceDecision::AcceptActive => {}
+            _ => unreachable!("active snapshot has only two decisions"),
+        }
+
+        let Some(taskbar) = app.get_webview_window(TASKBAR_WINDOW_LABEL) else {
+            return self.recover_after_ready_taskbar_changed(app, None);
+        };
+        if taskbar
+            .set_ignore_cursor_events(latest.click_through)
+            .is_err()
+        {
+            return self.recover_after_ready_taskbar_changed(app, Some(&taskbar));
+        }
+        if !windows::taskbar_companion_is_healthy(&taskbar) {
+            return self.recover_after_ready_taskbar_changed(app, Some(&taskbar));
+        }
+
+        self.finish_taskbar_recovery_during_transition(app, &latest)?;
+        Ok(TaskbarMonitorOutcome::Placed)
+    }
+
+    #[cfg(windows)]
+    fn recover_after_ready_taskbar_changed(
+        &self,
+        app: &AppHandle,
+        taskbar: Option<&WebviewWindow>,
+    ) -> Result<TaskbarMonitorOutcome, String> {
+        // The initial Ready path may already have enabled the hook. Clear its
+        // bridge and request unhook before exposing main or waiting for retry.
+        let _ = self.taskbar_input.disable();
+        if let Some(taskbar) = taskbar {
+            let _ = windows::hide_taskbar_window(taskbar);
+        }
+        let recovery = self.recover_main_window_for_safety(app);
+        {
+            let mut state = self.lock_taskbar_recovery()?;
+            observe_taskbar_recovery(&mut state, Instant::now(), recovery.is_ok());
+        }
+        recovery?;
+        Ok(TaskbarMonitorOutcome::Recovering)
+    }
+
+    #[cfg(windows)]
+    fn finish_taskbar_recovery_during_transition(
+        &self,
+        app: &AppHandle,
+        preferences: &DesktopPreferences,
+    ) -> Result<(), String> {
+        let should_restore_preference = {
+            let recovery = self.lock_taskbar_recovery()?;
+            recovery.started_at.is_some() && recovery.main_exposed
+        };
+        if should_restore_preference
+            && preferences.show_taskbar_window
+            && !preferences.show_main_window
+        {
+            let main = app
+                .get_webview_window(MAIN_WINDOW_LABEL)
+                .ok_or_else(|| "main window is unavailable".to_owned())?;
+            main.hide().map_err(|error| error.to_string())?;
+        }
+        self.lock_taskbar_recovery()?.complete();
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn disable_taskbar_projection(&self, app: &AppHandle) -> Result<(), String> {
+        self.taskbar_input.disable()?;
+        if let Some(taskbar) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
+            windows::hide_taskbar_window(&taskbar)?;
+        }
+        self.lock_taskbar_recovery()?.complete();
+        Ok(())
     }
 
     #[cfg(windows)]
@@ -1167,59 +1500,99 @@ impl DesktopController {
         &self,
         app: &AppHandle,
         preferences: &DesktopPreferences,
-    ) -> Result<(), String> {
-        let taskbar = windows::create_taskbar_window(app)?;
-        // Re-install after recreate / attach; cheap no-op when already hooked.
-        windows::install_taskbar_input_hooks(app, &taskbar)?;
-        taskbar
-            .set_ignore_cursor_events(preferences.click_through)
-            .map_err(|error| error.to_string())?;
-        windows::place_taskbar_window(&taskbar, TASKBAR_SIZE)?;
-        taskbar.show().map_err(|error| error.to_string())?;
-        if !windows::taskbar_companion_is_healthy(&taskbar) {
-            return Err("taskbar companion is not healthy after placement".to_owned());
+    ) -> Result<TaskbarProjectionStatus, String> {
+        let taskbar = match self.taskbar_window_lifecycle.ensure(app) {
+            windows::TaskbarWindowOutcome::Ready(taskbar) => taskbar,
+            windows::TaskbarWindowOutcome::Recovering(reason) => {
+                self.taskbar_input.disable()?;
+                return Ok(TaskbarProjectionStatus::Recovering(format!("{reason:?}")));
+            }
+            windows::TaskbarWindowOutcome::Fatal(error) => {
+                let _ = self.taskbar_input.disable();
+                return Err(error);
+            }
+        };
+
+        let result = (|| {
+            taskbar
+                .set_ignore_cursor_events(preferences.click_through)
+                .map_err(|error| error.to_string())?;
+            windows::place_taskbar_window(&taskbar, TASKBAR_SIZE)?;
+            taskbar.show().map_err(|error| error.to_string())?;
+            if !windows::taskbar_companion_is_healthy(&taskbar) {
+                return Err("taskbar companion is not healthy after placement".to_owned());
+            }
+            self.taskbar_input.ensure_enabled(&taskbar)?;
+            Ok(TaskbarProjectionStatus::Ready)
+        })();
+        let Err(error) = result else {
+            return result;
+        };
+
+        let _ = self.taskbar_input.disable();
+        // Explorer can disappear after the lifecycle drive returned Ready but
+        // before placement/show/health completes. Re-observe once so that race
+        // enters the bounded recovery path; an unchanged Ready window means the
+        // original failure (for example no free slot or hook failure) is fatal.
+        match self.taskbar_window_lifecycle.ensure(app) {
+            windows::TaskbarWindowOutcome::Recovering(reason) => {
+                Ok(TaskbarProjectionStatus::Recovering(format!("{reason:?}")))
+            }
+            windows::TaskbarWindowOutcome::Ready(_) => Err(error),
+            windows::TaskbarWindowOutcome::Fatal(lifecycle_error) => Err(format!(
+                "{error}; taskbar lifecycle recheck failed: {lifecycle_error}"
+            )),
         }
-        Ok(())
     }
 
     #[cfg(windows)]
     fn commit_taskbar_monitor_failure(
         &self,
         app: &AppHandle,
-        mut current: MutexGuard<'_, DesktopPreferences>,
         placement_error: String,
-    ) -> TaskbarMonitorOutcome {
-        let next = taskbar_failure_preferences(&current)
-            .expect("taskbar monitor failure requires an enabled taskbar preference");
+    ) -> Result<TaskbarMonitorOutcome, String> {
+        let _transition = self.lock_preference_transition()?;
         let mut recovery_errors = Vec::new();
-
-        // Commit preference memory before native recovery so tray clicks observe
-        // showMainWindow=true even if window show is slow.
-        *current = next.clone();
-        drop(current);
 
         if let Err(error) = self.recover_main_window_for_safety(app) {
             recovery_errors.push(format!("recover main window: {error}"));
+        }
+        if let Err(error) = self.taskbar_input.disable() {
+            recovery_errors.push(format!("disable taskbar input: {error}"));
         }
         if let Some(taskbar) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
             if let Err(error) = windows::hide_taskbar_window(&taskbar) {
                 recovery_errors.push(format!("hide taskbar companion: {error}"));
             }
         }
+
+        let current = self.preferences()?;
+        let Some(next) = taskbar_failure_preferences(&current) else {
+            self.lock_taskbar_recovery()?.complete();
+            return Ok(TaskbarMonitorOutcome::Inactive);
+        };
         if let Err(error) = persist_preferences(&self.preferences_path, &next) {
             recovery_errors.push(format!("persist preferences: {error}"));
         }
         if let Err(error) = self.menu.sync(&next) {
             recovery_errors.push(format!("sync desktop menu: {error}"));
         }
-        if let Err(error) = app.emit(PREFERENCES_UPDATED_EVENT, &next) {
-            recovery_errors.push(format!("emit desktop preferences: {error}"));
+        match self.lock_preferences() {
+            Ok(mut preferences) => {
+                *preferences = next.clone();
+                drop(preferences);
+                if let Err(error) = app.emit(PREFERENCES_UPDATED_EVENT, &next) {
+                    recovery_errors.push(format!("emit desktop preferences: {error}"));
+                }
+            }
+            Err(error) => recovery_errors.push(error),
         }
+        self.lock_taskbar_recovery()?.complete();
 
-        TaskbarMonitorOutcome::Disabled {
+        Ok(TaskbarMonitorOutcome::Disabled {
             placement_error,
             recovery_errors,
-        }
+        })
     }
 
     fn apply_option(
@@ -1296,28 +1669,40 @@ impl DesktopController {
             .get_webview_window(MAIN_WINDOW_LABEL)
             .ok_or_else(|| "main window is unavailable".to_owned())?;
 
-        if preferences.show_main_window {
-            main.show().map_err(|error| error.to_string())?;
-            if let Err(error) = self.ensure_main_window_intersects_work_area(app) {
-                eprintln!(
-                    "[model-radar] main window on-screen clamp after show failed: {error}"
-                );
-            }
-            return Ok(());
-        }
-
-        // Hiding main is only safe when the taskbar companion is healthy (or disabled).
-        #[cfg(windows)]
-        if preferences.show_taskbar_window {
-            if let Err(error) = self.ensure_taskbar_projection(app, preferences) {
-                let _ = windows::show_recovery_window(&main);
-                let _ = self.ensure_main_window_intersects_work_area(app);
-                return Err(error);
-            }
-        }
-
-        main.hide().map_err(|error| error.to_string())?;
-        Ok(())
+        apply_main_window_visibility_steps(
+            preferences.show_main_window,
+            preferences.show_taskbar_window,
+            || {
+                main.show().map_err(|error| error.to_string())?;
+                if let Err(error) = self.ensure_main_window_intersects_work_area(app) {
+                    eprintln!(
+                        "[model-radar] main window on-screen clamp after show failed: {error}"
+                    );
+                }
+                Ok(())
+            },
+            || {
+                #[cfg(windows)]
+                {
+                    match self.ensure_taskbar_projection(app, preferences)? {
+                        TaskbarProjectionStatus::Ready => Ok(()),
+                        TaskbarProjectionStatus::Recovering(reason) => {
+                            Err(format!("taskbar companion is rebuilding ({reason})"))
+                        }
+                    }
+                }
+                #[cfg(not(windows))]
+                Ok(())
+            },
+            || {
+                #[cfg(windows)]
+                {
+                    let _ = windows::show_recovery_window(&main);
+                    let _ = self.ensure_main_window_intersects_work_area(app);
+                }
+            },
+            || main.hide().map_err(|error| error.to_string()),
+        )
     }
 
     fn apply_visibility(
@@ -1334,33 +1719,61 @@ impl DesktopController {
         // When the main window is also being shown, taskbar failure is soft:
         // menu "show taskbar" while main is visible must still succeed.
         #[cfg(windows)]
-        {
+        let taskbar_ready = {
             if preferences.show_taskbar_window {
-                if let Err(error) = self.ensure_taskbar_projection(app, preferences) {
-                    if preferences.show_main_window {
+                match self.ensure_taskbar_projection(app, preferences) {
+                    Ok(TaskbarProjectionStatus::Ready) => true,
+                    Ok(TaskbarProjectionStatus::Recovering(reason)) => {
+                        let recovery_show = windows::show_recovery_window(&main);
+                        let _ = self.ensure_main_window_intersects_work_area(app);
+                        if !preferences.show_main_window {
+                            {
+                                let mut recovery = self.lock_taskbar_recovery()?;
+                                observe_taskbar_recovery(
+                                    &mut recovery,
+                                    Instant::now(),
+                                    recovery_show.is_ok(),
+                                );
+                            }
+                            recovery_show.map_err(|error| {
+                                format!(
+                                    "taskbar companion is rebuilding ({reason}); temporary main recovery failed: {error}"
+                                )
+                            })?;
+                        }
+                        eprintln!(
+                            "[model-radar] taskbar companion is rebuilding while main stays visible: {reason}"
+                        );
+                        false
+                    }
+                    Err(error) if preferences.show_main_window => {
                         eprintln!(
                             "[model-radar] taskbar companion ensure failed while main stays visible: {error}"
                         );
-                    } else {
-                        // Taskbar-only request cannot proceed; keep main up.
+                        false
+                    }
+                    Err(error) => {
                         let _ = windows::show_recovery_window(&main);
                         let _ = self.ensure_main_window_intersects_work_area(app);
                         return Err(error);
                     }
                 }
-            } else if let Some(taskbar) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
-                windows::hide_taskbar_window(&taskbar)?;
+            } else {
+                self.disable_taskbar_projection(app)?;
+                false
             }
-        }
+        };
 
         if preferences.show_main_window {
             main.show().map_err(|error| error.to_string())?;
             if let Err(error) = self.ensure_main_window_intersects_work_area(app) {
-                eprintln!(
-                    "[model-radar] main window on-screen clamp after show failed: {error}"
-                );
+                eprintln!("[model-radar] main window on-screen clamp after show failed: {error}");
             }
         } else {
+            #[cfg(windows)]
+            if preferences.show_taskbar_window && !taskbar_ready {
+                return Ok(());
+            }
             main.hide().map_err(|error| error.to_string())?;
         }
 
@@ -1376,9 +1789,7 @@ impl DesktopController {
             .get_webview_window(MAIN_WINDOW_LABEL)
             .ok_or_else(|| "main window is unavailable".to_owned())?;
         if let Err(error) = self.ensure_main_window_intersects_work_area(app) {
-            eprintln!(
-                "[model-radar] main window on-screen clamp during recovery failed: {error}"
-            );
+            eprintln!("[model-radar] main window on-screen clamp during recovery failed: {error}");
         }
         #[cfg(windows)]
         {
@@ -1500,6 +1911,19 @@ impl DesktopController {
             .map_err(|_| "desktop preferences lock is poisoned".to_owned())
     }
 
+    fn lock_preference_transition(&self) -> Result<MutexGuard<'_, ()>, String> {
+        self.preference_transition
+            .lock()
+            .map_err(|_| "desktop preference transition lock is poisoned".to_owned())
+    }
+
+    #[cfg(windows)]
+    fn lock_taskbar_recovery(&self) -> Result<MutexGuard<'_, TaskbarRecoveryState>, String> {
+        self.taskbar_recovery
+            .lock()
+            .map_err(|_| "taskbar recovery state lock is poisoned".to_owned())
+    }
+
     fn lock_projection(&self) -> Result<MutexGuard<'_, CompanionProjection>, String> {
         self.projection
             .lock()
@@ -1608,6 +2032,10 @@ pub fn handle_app_exit(app: &AppHandle) {
     if let Err(error) = controller.flush_main_window_position(app) {
         eprintln!("[model-radar] final main window position flush failed: {error}");
     }
+    #[cfg(windows)]
+    if let Err(error) = controller.taskbar_input.shutdown() {
+        eprintln!("[model-radar] taskbar input shutdown failed: {error}");
+    }
 }
 
 fn dispatch_menu_event(app: &AppHandle, id: &str) {
@@ -1674,8 +2102,9 @@ pub fn get_main_expanded(state: State<'_, DesktopController>) -> Result<bool, St
     state.main_expanded()
 }
 
-// These transactions can wait on native window work while the taskbar monitor
-// is holding the preference guard. Keep the IPC event loop free to service it.
+// These transactions can wait on the preference transition gate and native
+// window work. Keep the IPC event loop free so it can service background Wry
+// calls made while that gate is held.
 #[tauri::command(async)]
 pub fn set_desktop_option(
     app: AppHandle,
@@ -1736,7 +2165,7 @@ pub fn set_window_expanded(
     state.set_main_expanded(&app, expanded)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hide_window(
     window: WebviewWindow,
     state: State<'_, DesktopController>,
@@ -1744,7 +2173,7 @@ pub fn hide_window(
     state.hide_window(window.app_handle(), window.label())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn show_main_details(
     app: AppHandle,
     state: State<'_, DesktopController>,
@@ -2144,6 +2573,7 @@ fn ensure_supported_platform() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use std::{
+        cell::RefCell,
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -2151,21 +2581,27 @@ mod tests {
     use tauri::{PhysicalPosition, PhysicalSize};
 
     use super::{
-        anchored_resize_position, bounded_single_line, canonical_compact_position,
-        fit_logical_size, load_json, persist_json, persist_preferences, preset_position,
+        anchored_resize_position, apply_main_window_visibility_steps, bounded_single_line,
+        canonical_compact_position, close_request_should_hide, fit_logical_size, load_json,
+        main_window_toggle_action, persist_json, persist_preferences, preset_position,
         radar_source_checks, radar_source_from_menu_id, restored_main_window_position,
         tray_left_click_behavior, window_work_area_intersection, CompanionProjection,
-        DesktopOption, DesktopPreferences,
-        MainPositionSaveState, MainWindowPositionPreset, RadarSource, SavedMainWindowPosition,
-        TrayLeftClickBehavior, MENU_LAUNCH_AT_LOGIN, MENU_POSITION_BOTTOM_LEFT,
-        MENU_POSITION_BOTTOM_RIGHT, MENU_POSITION_CENTER, MENU_POSITION_TOP_LEFT,
-        MENU_POSITION_TOP_RIGHT, MENU_RADAR_SOURCE_DISTRIBUTED, MENU_RADAR_SOURCE_MAIN,
-        VALID_OPACITY,
+        DesktopOption, DesktopPreferences, MainPositionSaveState, MainWindowPositionPreset,
+        MainWindowToggleAction, RadarSource, SavedMainWindowPosition, TrayLeftClickBehavior,
+        MENU_LAUNCH_AT_LOGIN, MENU_POSITION_BOTTOM_LEFT, MENU_POSITION_BOTTOM_RIGHT,
+        MENU_POSITION_CENTER, MENU_POSITION_TOP_LEFT, MENU_POSITION_TOP_RIGHT,
+        MENU_RADAR_SOURCE_DISTRIBUTED, MENU_RADAR_SOURCE_MAIN, VALID_OPACITY,
     };
     #[cfg(windows)]
-    use super::{claim_taskbar_monitor, taskbar_failure_preferences};
+    use super::{
+        claim_taskbar_monitor, observe_taskbar_recovery, taskbar_failure_preferences,
+        taskbar_tick_preference_decision, TaskbarRecoveryState, TaskbarTickPreferenceDecision,
+        TASKBAR_RECOVERY_GRACE,
+    };
     #[cfg(windows)]
     use std::sync::atomic::AtomicBool;
+    #[cfg(windows)]
+    use std::time::{Duration, Instant};
 
     #[test]
     fn preferences_default_to_recoverable_visible_windows() {
@@ -2322,6 +2758,60 @@ mod tests {
             tray_left_click_behavior(false),
             TrayLeftClickBehavior::ToggleMain
         );
+    }
+
+    #[test]
+    fn native_visibility_drives_the_first_tray_toggle() {
+        let drifted_preferences = DesktopPreferences {
+            show_main_window: true,
+            ..DesktopPreferences::default()
+        };
+        assert!(drifted_preferences.show_main_window);
+        assert_eq!(
+            main_window_toggle_action(Some(false)),
+            MainWindowToggleAction::Show
+        );
+        assert_eq!(
+            main_window_toggle_action(None),
+            MainWindowToggleAction::Show
+        );
+        assert_eq!(
+            main_window_toggle_action(Some(true)),
+            MainWindowToggleAction::Hide
+        );
+    }
+
+    #[test]
+    fn user_close_to_hide_is_limited_to_managed_companions() {
+        assert!(close_request_should_hide("main"));
+        assert!(close_request_should_hide("taskbar"));
+        assert!(!close_request_should_hide("settings"));
+        assert!(!close_request_should_hide("internal-rebuild"));
+    }
+
+    #[test]
+    fn main_hide_recovers_without_hiding_when_taskbar_ensure_fails() {
+        let calls = RefCell::new(Vec::new());
+        let result = apply_main_window_visibility_steps(
+            false,
+            true,
+            || {
+                calls.borrow_mut().push("show");
+                Ok(())
+            },
+            || {
+                calls.borrow_mut().push("ensure-taskbar");
+                Err("taskbar unavailable".to_owned())
+            },
+            || calls.borrow_mut().push("recover-main"),
+            || {
+                calls.borrow_mut().push("hide-main");
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Err("taskbar unavailable".to_owned()));
+        assert_eq!(*calls.borrow(), ["ensure-taskbar", "recover-main"]);
     }
 
     #[test]
@@ -2647,6 +3137,75 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn taskbar_recovery_tracks_generation_grace_and_completion() {
+        let start = Instant::now();
+        let mut recovery = TaskbarRecoveryState::default();
+
+        let first = recovery.observe(start);
+        assert!(first.first_observation);
+        assert!(first.should_expose_main);
+        assert!(!first.timed_out);
+        recovery.mark_main_exposed(first.generation);
+
+        let before_deadline =
+            recovery.observe(start + TASKBAR_RECOVERY_GRACE - Duration::from_millis(1));
+        assert!(!before_deadline.first_observation);
+        assert!(!before_deadline.should_expose_main);
+        assert!(!before_deadline.timed_out);
+
+        let timed_out = recovery.observe(start + TASKBAR_RECOVERY_GRACE);
+        assert_eq!(timed_out.generation, first.generation);
+        assert!(timed_out.timed_out);
+        assert!(recovery.complete());
+
+        let next_started_at = start + TASKBAR_RECOVERY_GRACE + Duration::from_secs(1);
+        let next = recovery.observe(next_started_at);
+        assert!(next.first_observation);
+        assert_ne!(next.generation, first.generation);
+        recovery.mark_main_exposed(first.generation);
+        assert!(
+            recovery
+                .observe(next_started_at + Duration::from_millis(1))
+                .should_expose_main
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn taskbar_only_apply_marks_temporary_main_before_an_immediate_ready_tick() {
+        let mut recovery = TaskbarRecoveryState::default();
+        let now = Instant::now();
+        let observation = observe_taskbar_recovery(&mut recovery, now, true);
+
+        assert!(observation.first_observation);
+        assert!(observation.should_expose_main);
+        assert!(!recovery.observe(now).should_expose_main);
+        assert!(recovery.complete());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn taskbar_tick_revalidates_both_stale_preference_directions() {
+        assert_eq!(
+            taskbar_tick_preference_decision(false, false),
+            TaskbarTickPreferenceDecision::StayInactive
+        );
+        assert_eq!(
+            taskbar_tick_preference_decision(false, true),
+            TaskbarTickPreferenceDecision::RetryActive
+        );
+        assert_eq!(
+            taskbar_tick_preference_decision(true, false),
+            TaskbarTickPreferenceDecision::DisableStaleActive
+        );
+        assert_eq!(
+            taskbar_tick_preference_decision(true, true),
+            TaskbarTickPreferenceDecision::AcceptActive
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn runtime_taskbar_failure_disables_projection_and_restores_main() {
         let taskbar_only = DesktopPreferences {
             show_taskbar_window: true,
@@ -2691,7 +3250,10 @@ mod tests {
             &[primary, secondary],
             (primary.0, primary.1, primary.2),
         );
-        assert_eq!(restored, PhysicalPosition::new((2560 - 360) / 2, (1392 - 112) / 2));
+        assert_eq!(
+            restored,
+            PhysicalPosition::new((2560 - 360) / 2, (1392 - 112) / 2)
+        );
         assert!(
             window_work_area_intersection(restored, primary.2, (primary.0, primary.1)) > 0,
             "recovered position must intersect the primary work area"
@@ -2713,8 +3275,11 @@ mod tests {
             PhysicalSize::new(2560u32, 1392u32),
             PhysicalSize::new(360u32, 112u32),
         );
-        let restored =
-            restored_main_window_position(seed, &[primary, secondary], (primary.0, primary.1, primary.2));
+        let restored = restored_main_window_position(
+            seed,
+            &[primary, secondary],
+            (primary.0, primary.1, primary.2),
+        );
         assert_eq!(restored.x, 2560);
         assert_eq!(restored.y, 800);
         assert!(
