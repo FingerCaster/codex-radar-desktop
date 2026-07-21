@@ -1,6 +1,6 @@
 [package]
 name = "model_radar"
-version = "0.2.0"
+version = "0.2.1"
 description = "A compact desktop radar for the current highest-scoring Codex model."
 authors = ["FingerCaster"]
 edition = "2021"

@@ -1,7 +1,7 @@
 {
   "name": "model-radar",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A compact desktop radar for the current highest-scoring Codex model.",
   "author": "FingerCaster",
   "type": "module",
